@@ -79,8 +79,6 @@ let cameraFallback = false;
 let ktpPath = '';
 let ocrAttempts = 0;
 let villageSearchTimer = null;
-let ocrAttempts = 0;
-let villageSearchTimer = null;
 
 const selectOptions = (options, selected) => options.map(o => {
   const item = typeof o === 'string' ? {value:o,label:o} : o;
@@ -92,7 +90,7 @@ function formatCurrency(value){
 }
 function fieldHtml(field, values={}){
   let value=values[field.name] ?? field.value ?? '';
-  if(['gender','pasangan_lp','saudara1_lp','saudara2_lp','saudara3_lp','anak1_lp','anak2_lp','anak3_lp'].includes(field.name)){
+  if(['gender','pasangan_lp','saudara1_lp','saudara2_lp','saudara3_lp','saudara4_lp','anak1_lp','anak2_lp','anak3_lp'].includes(field.name)){
     value=value==='L'?'Laki-laki':value==='P'?'Perempuan':value;
   }
   const required=field.required?'required':'';
@@ -263,7 +261,7 @@ function collect(form){
   if(genderMap[data.gender]) data.gender=genderMap[data.gender];
   if(genderMap[data.saudara1_lp]) data.saudara1_lp=genderMap[data.saudara1_lp];
   if(genderMap[data.pasangan_lp]) data.pasangan_lp=genderMap[data.pasangan_lp];
-  for(let i=2;i<=3;i++){const key=`saudara${i}_lp`;if(genderMap[data[key]])data[key]=genderMap[data[key]];}
+  for(let i=2;i<=4;i++){const key=`saudara${i}_lp`;if(genderMap[data[key]])data[key]=genderMap[data[key]];}
   for(let i=1;i<=3;i++){const key=`anak${i}_lp`;if(genderMap[data[key]])data[key]=genderMap[data[key]];}
   data.umur=ageFrom(data.tanggal_lahir);
   data.nama_terang=data.nama||'';
@@ -296,6 +294,10 @@ function updateDynamic(form,values){
     block.hidden=form.querySelector(`[name="bahasa${block.dataset.languageOther}"]`)?.value!=='Lainnya';
   });
   updateEducationVisibility(form);
+  form.querySelectorAll('[data-work-end]').forEach(group=>{
+    const checked=form.querySelector(`[name="kerja${group.dataset.workEnd}_masih_bekerja"]`)?.checked;
+    group.hidden=Boolean(checked);
+  });
 }
 function rerenderGroups(form){
   const values=collect(form);
@@ -793,9 +795,6 @@ async function uploadCv(file){
     cvFilename=file.name;
     name.textContent=cvFilename;
     status.textContent='CV berhasil diunggah dan tersimpan.';
-    const prompt=$('#cv-disc-prompt');if(prompt)prompt.hidden=false;
-    $('#cv-continue-submit')?.addEventListener('click',()=>setWizardStep(stepNames.length-1,{push:true}));
-    $('#cv-do-later')?.addEventListener('click',()=>{if(prompt)prompt.hidden=true;});
     await flushDraft(form);
   }catch(error){
     status.textContent=error.message||'CV belum tersimpan.';saveState('Belum tersimpan',true);
