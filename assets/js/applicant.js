@@ -433,9 +433,9 @@ async function hydrateAddress(form,values={}){
     return;
   }
   regencySelect.value=regency.id;
-  const cityMatch=regency.name.match(/^(Kabupaten|Kota)\\s+/i);
+  const cityMatch=regency.name.match(/^(Kabupaten|Kota)\s+/i);
   setAddressLabel(form,'alamat_kota_jenis',cityMatch?.[1]||'Kabupaten');
-  setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\\s+/i,''));
+  setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\s+/i,''));
 
   const districts=await loadDistricts(form,regency.id);
   const district=findRegion(districts,values.alamat_kecamatan);
