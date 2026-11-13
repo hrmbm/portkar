@@ -96,7 +96,9 @@ function fieldHtml(field, values={}){
   const id=`f-${field.name}`;
   const label=`<label for="${esc(id)}">${esc(field.label)}</label>`;
   let control='';
-  if(field.type==='select' || field.type==='year'){
+  if(field.type==='checkbox'){
+    control=`<input id="${esc(id)}" name="${esc(field.name)}" type="checkbox" value="true" ${String(value)==='true'?'checked':''}>`;
+  }else if(field.type==='select' || field.type==='year'){
     const options=field.type==='year' ? Array.from({length:57},(_,i)=>String(new Date().getFullYear()-i)) : field.options;
     control=`<select id="${esc(id)}" name="${esc(field.name)}" class="select" ${required}><option value="">${esc(field.placeholder||'Pilih')}</option>${selectOptions(options,value)}</select>`;
   }else if(field.type==='textarea'){
@@ -268,31 +270,45 @@ function syncApplicantRow(form){
   const set=(name,value)=>{const el=form.querySelector(`[name="${name}"]`);if(el)el.value=value||'';};
   set('saudara1_nama',values.nama);set('saudara1_lp',values.gender==='L'?'Laki-laki':values.gender==='P'?'Perempuan':'');set('saudara1_umur',values.umur);set('umur',values.umur);set('nama_terang',values.nama);
 }
+function updateEducationVisibility(form){
+  const ranks={'Tidak sekolah':0,'SD / Sederajat':1,'SMP / Sederajat':2,'SMA / SMK':3,D1:4,D2:5,D3:6,D4:7,S1:8,S2:9,S3:10};
+  const selected=ranks[form.querySelector('[name="pendidikan_terakhir"]')?.value||'']??0;
+  form.querySelectorAll('[data-education-row]').forEach(row=>{
+    const prefix=row.dataset.educationRow;
+    const rank=prefix==='sd'?1:prefix==='smp'?2:prefix==='sma'?3:prefix==='diploma'?4:8;
+    row.hidden=selected<rank||(prefix==='diploma'&&selected>=8);
+  });
+}
 function updateDynamic(form,values){
   const marital=form.querySelector('[name="status_kawin"]')?.value||values.status_kawin||'';
   const spouse=form.querySelector('[data-block="spouse"]');if(spouse)spouse.hidden=marital!=='Kawin';
   const children=form.querySelector('[data-block="children"]');if(children)children.hidden=!marital||marital==='Belum kawin';
   const workCount=Number(form.querySelector('#kerja_count')?.value??values.kerja_count??0);
   const work=form.querySelector('[data-block="work-rows"]');if(work)work.hidden=workCount===0;
-  const refCount=Number(form.querySelector('#referensi_count')?.value??values.referensi_count??0);
-  const refs=form.querySelector('[data-block="reference-rows"]');if(refs)refs.hidden=refCount===0;
   const domicile=form.querySelector('[data-block="domicile"]');
   const domicileToggle=form.querySelector('[name="domisili_berbeda"]');
   if(domicile)domicile.hidden=!domicileToggle?.checked;
+  form.querySelectorAll('[data-language-other]').forEach(block=>{
+    block.hidden=form.querySelector(`[name="bahasa${block.dataset.languageOther}"]`)?.value!=='Lainnya';
+  });
+  updateEducationVisibility(form);
 }
 function rerenderGroups(form){
   const values=collect(form);
-  const siblingCount=Math.min(3,Math.max(1,Number(values.saudara_count||1)));
+  const siblingValue=String(values.saudara_count??'0');
+  const siblingCount=siblingValue==='3+'?3:Math.min(3,Math.max(0,Number(siblingValue)||0));
   const siblingHost=$('#siblings-rows',form);
   if(siblingHost){
-    siblingHost.innerHTML=Array.from({length:siblingCount},(_,i)=>{
-      const n=i+1,p=`saudara${n}_`;
-      const fields=n===1
-        ? [{name:'saudara1_nama',label:'Nama',readonly:true},{name:'saudara1_lp',label:'Jenis kelamin',readonly:true},{name:'saudara1_umur',label:'Umur',readonly:true},{name:'saudara1_pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:'saudara1_pekerjaan',label:'Pekerjaan'}]
-        : [{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:120},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
-      const rowValues={...values,saudara1_nama:values.nama||'',saudara1_lp:values.gender==='L'?'Laki-laki':values.gender==='P'?'Perempuan':'',saudara1_umur:values.umur||''};
-      return `<div class="repeat-row"><div class="repeat-title">${n===1?'Anda':`Saudara ${n-1}`}</div>${basicGrid(fields,rowValues)}</div>`;
+    const self=`<div class="repeat-row"><div class="repeat-title">Anda (otomatis)</div>${basicGrid([
+      {name:'saudara1_nama',label:'Nama',readonly:true},{name:'saudara1_lp',label:'Jenis kelamin',readonly:true},
+      {name:'saudara1_umur',label:'Umur',readonly:true},{name:'saudara1_pendidikan',label:'Pendidikan',type:'select',options:educationChoices},
+      {name:'saudara1_pekerjaan',label:'Pekerjaan'}
+    ],{...values,saudara1_nama:values.nama||'',saudara1_lp:values.gender==='L'?'Laki-laki':values.gender==='P'?'Perempuan':'',saudara1_umur:values.umur||''})}</div>`;
+    const siblings=Array.from({length:siblingCount},(_,i)=>{
+      const n=i+2,p=`saudara${n}_`,fields=[{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:120},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
+      return `<div class="repeat-row"><div class="repeat-title">Saudara ${i+1}</div>${basicGrid(fields,values)}</div>`;
     }).join('');
+    siblingHost.innerHTML=self+siblings;
   }
   const childrenHost=$('#children-rows',form);
   if(childrenHost){
@@ -304,31 +320,26 @@ function rerenderGroups(form){
   }
   const languageHost=$('#language-rows',form);
   if(languageHost){
-    const count=Math.min(4,Math.max(0,Number(values.bahasa_count||0)));
+    const count=Math.min(4,Math.max(0,Number(values.bahasa_count||0))),opts=choices(['Inggris','Mandarin','Arab','Jepang','Rusia','Jerman','Prancis','Latin','Lainnya']);
     languageHost.innerHTML=Array.from({length:count},(_,i)=>{
-      const p=`bahasa${i+1}`,fields=[{name:p,label:'Bahasa',type:'select',options:choices(['Indonesia','Inggris','Jawa','Madura','Sunda','Mandarin','Jepang','Korea','Arab','Lainnya'])},{name:p+'_bicara',label:'Berbicara',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_baca',label:'Membaca',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_tulis',label:'Menulis',type:'select',options:choices(['Dasar','Menengah','Mahir'])}];
-      return `<div class="repeat-row"><div class="repeat-title">Bahasa ${i+1}</div>${basicGrid(fields,values)}</div>`;
+      const n=i+1,p=`bahasa${n}`,fields=[{name:p,label:'Bahasa asing',type:'select',options:opts},{name:p+'_bicara',label:'Berbicara',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_baca',label:'Membaca',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_tulis',label:'Menulis',type:'select',options:choices(['Dasar','Menengah','Mahir'])}];
+      return `<div class="repeat-row"><div class="repeat-title">Bahasa ${n}</div>${basicGrid(fields,values)}<div class="conditional-fields" data-language-other="${n}" ${values[p]==='Lainnya'?'':'hidden'}>${fieldHtml({name:p+'_lainnya',label:'Nama bahasa lainnya'},values)}</div></div>`;
     }).join('');
   }
   const workHost=$('#work-rows',form);
   if(workHost){
-    const count=Math.min(3,Math.max(0,Number(values.kerja_count||0)));
+    const count=Math.min(3,Math.max(0,Number(values.kerja_count||0))),months=choices(['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']);
     workHost.innerHTML=Array.from({length:count},(_,i)=>{
-      const n=i+1,p=`kerja${n}_`,fields=workKeys.map(([key,label,type])=>({name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)}));
+      const n=i+1,p=`kerja${n}_`,fields=workKeys.map(([key,label,type])=>{
+        if(key.endsWith('_bulan'))return {name:p+key,label,type:'select',options:months};
+        if(key.endsWith('_tahun'))return {name:p+key,label,type:'year'};
+        if(type==='checkbox')return {name:p+key,label,type:'checkbox'};
+        return {name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)};
+      });
       return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(fields,values)}</div>`;
     }).join('');
   }
-  const refsHost=$('#reference-rows',form);
-  if(refsHost){
-    const count=Math.min(2,Math.max(0,Number(values.referensi_count||0)));
-    refsHost.innerHTML=Array.from({length:count},(_,i)=>{
-      const p=`referensi${i+1}_`,fields=refKeys.map(([key,label])=>({name:p+key,label,type:key==='alamat'?'textarea':key==='telepon'?'tel':key==='hubungan'?'select':undefined,options:key==='hubungan'?choices(['Atasan','Rekan kerja','Guru / Dosen','Keluarga','Lainnya']):undefined,wide:key==='alamat'}));
-      return `<div class="repeat-row"><div class="repeat-title">Referensi ${i+1}</div>${basicGrid(fields,values)}</div>`;
-    }).join('');
-  }
-  updateDynamic(form,values);
-  syncApplicantRow(form);
-  updateAddressPreview(form);
+  updateDynamic(form,values);syncApplicantRow(form);updateAddressPreview(form);
 }
 function updateAddressPreview(form){
   const preview=$('#address-preview',form);if(!preview)return;
@@ -338,6 +349,97 @@ function updateAddressPreview(form){
   preview.textContent=address;
   preview.classList.toggle('empty',!address);
 }
+
+const regionCache=new Map();
+async function regionRpc(name,params={}){
+  const key=name+':'+JSON.stringify(params);
+  if(regionCache.has(key))return regionCache.get(key);
+  const promise=(async()=>{const {data,error}=await supabase.rpc(name,params);if(error)throw error;return data||[];})();
+  regionCache.set(key,promise);
+  try{return await promise;}catch(error){regionCache.delete(key);throw error;}
+}
+function setSelect(select,rows,placeholder){
+  if(!select)return;
+  const selected=select.value;
+  select.innerHTML='<option value="">'+esc(placeholder||'Pilih')+'</option>'+rows.map(row=>`<option value="${esc(row.id)}">${esc(row.name)}</option>`).join('');
+  if(rows.some(row=>String(row.id)===selected))select.value=selected;
+}
+function regionNormalize(value){
+  return String(value||'').toLocaleUpperCase('id-ID').replace(/\b(PROVINSI|KABUPATEN|KAB\.?|KOTA ADMINISTRASI|KOTA)\b/g,' ').replace(/[^A-Z0-9]/g,'').trim();
+}
+function setAddressLabel(form,name,value){const el=form.querySelector(`[name="${name}"]`);if(el)el.value=value||'';}
+function findRegion(rows,value){
+  const wanted=regionNormalize(value);
+  return rows.find(row=>regionNormalize(row.name)===wanted)||rows.find(row=>wanted&&(regionNormalize(row.name).includes(wanted)||wanted.includes(regionNormalize(row.name))));
+}
+async function loadProvinces(form){
+  const rows=await regionRpc('list_region_provinces');
+  setSelect(form.querySelector('[name="alamat_provinsi_id"]'),rows,'Pilih provinsi');return rows;
+}
+async function loadRegencies(form,provinceId){
+  const rows=provinceId?await regionRpc('list_region_regencies',{p_province_id:provinceId}):[];
+  setSelect(form.querySelector('[name="alamat_kota_id"]'),rows,'Pilih kabupaten / kota');
+  const el=form.querySelector('[name="alamat_kota_id"]');if(el)el.disabled=!provinceId;return rows;
+}
+async function loadDistricts(form,regencyId){
+  const rows=regencyId?await regionRpc('list_region_districts',{p_regency_id:regencyId}):[];
+  setSelect(form.querySelector('[name="alamat_kecamatan_id"]'),rows,'Pilih kecamatan');
+  const el=form.querySelector('[name="alamat_kecamatan_id"]');if(el)el.disabled=!regencyId;return rows;
+}
+async function loadVillages(form,districtId,search=''){
+  const rows=districtId?await regionRpc('list_region_villages',{p_district_id:districtId,p_search:search||null,p_limit:30}):[];
+  const select=form.querySelector('[name="alamat_desa_id"]');
+  if(select){
+    const selected=select.value;
+    select.innerHTML='<option value="">Pilih desa / kelurahan</option>'+rows.map(row=>`<option value="${esc(row.id)}" data-area-type="${esc(row.area_type)}">${esc(row.name)}</option>`).join('');
+    if(rows.some(row=>String(row.id)===selected))select.value=selected;select.disabled=!districtId;
+  }
+  return rows;
+}
+async function hydrateAddress(form,values={}){
+  const provinces=await loadProvinces(form),province=findRegion(provinces,values.alamat_provinsi);if(!province)return;
+  form.querySelector('[name="alamat_provinsi_id"]').value=province.id;setAddressLabel(form,'alamat_provinsi',province.name);
+  const regencies=await loadRegencies(form,province.id),regency=findRegion(regencies,values.alamat_kota_nama);if(!regency)return;
+  form.querySelector('[name="alamat_kota_id"]').value=regency.id;
+  const match=regency.name.match(/^(Kabupaten|Kota)\s+/i);
+  setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'Kabupaten');setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\s+/i,''));
+  const districts=await loadDistricts(form,regency.id),district=findRegion(districts,values.alamat_kecamatan);if(!district)return;
+  form.querySelector('[name="alamat_kecamatan_id"]').value=district.id;setAddressLabel(form,'alamat_kecamatan',district.name);
+  const villages=await loadVillages(form,district.id),village=findRegion(villages,values.alamat_desa);
+  if(village){
+    form.querySelector('[name="alamat_desa_id"]').value=village.id;setAddressLabel(form,'alamat_desa',village.name);setAddressLabel(form,'alamat_wilayah_type',village.area_type);
+    const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:village.id});
+    if(!error)form.querySelector('[name="alamat_kodepos"]').value=postal||'';
+  }
+  updateAddressPreview(form);
+}
+async function onRegionChange(form,name){
+  const value=form.querySelector(`[name="${name}"]`)?.value||'';
+  if(name==='alamat_provinsi_id'){
+    const rows=await loadProvinces(form),row=rows.find(x=>x.id===value);setAddressLabel(form,'alamat_provinsi',row?.name||'');
+    for(const k of ['alamat_kota_jenis','alamat_kota_nama','alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,k,'');
+    for(const field of ['alamat_kota_id','alamat_kecamatan_id','alamat_desa_id']){const el=form.querySelector(`[name="${field}"]`);if(el)el.value='';}
+    await loadRegencies(form,value);await loadDistricts(form,'');await loadVillages(form,'');
+  }else if(name==='alamat_kota_id'){
+    const rows=await loadRegencies(form,form.querySelector('[name="alamat_provinsi_id"]').value),row=rows.find(x=>x.id===value),match=row?.name.match(/^(Kabupaten|Kota)\s+/i);
+    setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'Kabupaten');setAddressLabel(form,'alamat_kota_nama',row?.name.replace(/^(Kabupaten|Kota)\s+/i,'')||'');
+    for(const k of ['alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,k,'');
+    for(const field of ['alamat_kecamatan_id','alamat_desa_id']){const el=form.querySelector(`[name="${field}"]`);if(el)el.value='';}
+    await loadDistricts(form,value);await loadVillages(form,'');
+  }else if(name==='alamat_kecamatan_id'){
+    const rows=await loadDistricts(form,form.querySelector('[name="alamat_kota_id"]').value),row=rows.find(x=>x.id===value);
+    setAddressLabel(form,'alamat_kecamatan',row?.name||'');
+    for(const k of ['alamat_desa','alamat_kodepos','alamat_wilayah_type'])setAddressLabel(form,k,'');
+    const desa=form.querySelector('[name="alamat_desa_id"]');if(desa)desa.value='';await loadVillages(form,value);
+  }else if(name==='alamat_desa_id'){
+    const select=form.querySelector('[name="alamat_desa_id"]'),row=select?.selectedOptions?.[0];
+    setAddressLabel(form,'alamat_desa',row?.textContent||'');setAddressLabel(form,'alamat_wilayah_type',row?.dataset.areaType||'Desa');
+    const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:value});if(error)throw error;
+    const input=form.querySelector('[name="alamat_kodepos"]');if(input)input.value=postal||'';
+  }
+  updateAddressPreview(form);queueDraftSave(form);
+}
+
 function setWizardStep(step,{push=false,replace=false}={}){
   activeStep=Math.max(0,Math.min(stepNames.length-1,step));
   $$('.form-step',root).forEach(el=>el.hidden=Number(el.dataset.formStep)!==activeStep);
