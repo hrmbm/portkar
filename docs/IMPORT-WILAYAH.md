@@ -4,7 +4,7 @@ Project Supabase PORTKAR yang sudah terhubung pada implementasi ini telah diisi 
 
 ## Sumber CSV
 
-Gunakan snapshot wilayah pada [awanaprilino/wilayah-administrasi-kemendagri](https://github.com/awanaprilino/wilayah-administrasi-kemendagri), yang menyatakan sumbernya adalah Kepmendagri 300.2.2-2138 Tahun 2025.
+Gunakan snapshot wilayah pada [awanaprilino/wilayah-administrasi-kemendagri](https://github.com/awanaprilino/wilayah-administrasi-kemendagri), yang menyatakan sumbernya adalah Kepmendagri 300.2.2-2138 Tahun 2025. Perhatikan bahwa [Kepmendagri 300.2.2-2430 Tahun 2025](https://peraturan.bpk.go.id/Details/322912/keputusan-mendagri-no-30022-2430-tahun-2025) mengubah keputusan 2138/2025 (antara lain cakupan empat pulau ke Kabupaten Aceh Singkil); lakukan rekonsiliasi terhadap perubahan resmi sebelum memperbarui master produksi.
 
 Unduh empat CSV dari folder `csv/`:
 
