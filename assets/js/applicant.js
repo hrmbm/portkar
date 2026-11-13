@@ -1,5 +1,5 @@
 import { supabase, isConfigured } from './supabase.js';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, MAX_CV_BYTES, CV_BUCKET, CV_PATH_PREFIX } from './config.js';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, MAX_CV_BYTES, CV_BUCKET, CV_PATH_PREFIX, MAX_KTP_BYTES, KTP_BUCKET, KTP_PATH_PREFIX } from './config.js';
 import { $, esc, ageFrom, candidateToken, newCandidateToken, storeCandidateToken, stageUrl, setBusy } from './common.js';
 import { extractKtpText, formatKtpAddress } from './ktp-ocr.js';
 
@@ -638,7 +638,7 @@ async function requestServerOcr(blob){
   try{
     const response=await fetch(`${SUPABASE_URL.replace(/\/$/,'')}/functions/v1/ktp-ocr`,{
       method:'POST',
-      headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${SUPABASE_PUBLISHABLE_KEY}`},
+      headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${SUPABASE_PUBLISHABLE_KEY}`,'x-candidate-token':draftToken},
       body:formData,signal:controller.signal
     });
     const payload=await response.json().catch(()=>({}));
@@ -665,77 +665,43 @@ function hasUsefulOcr(data){
   const nik=String(data?.nik||'').replace(/\D/g,'');
   return /^\d{16}$/.test(nik)||Boolean(data?.nama&& (data?.tanggal_lahir||data?.tempat_lahir||data?.alamat_jalan));
 }
-async function canvasToJpegBlob(canvas){
-  return await new Promise((resolve,reject)=>{
-    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Foto KTP gagal diproses.')),'image/jpeg',0.88);
-  });
-}
-async function uploadKtpPhoto(canvas){
-  if(!draftToken)draftToken=newCandidateToken();
-  if(!isConfigured)throw new Error('Server belum terhubung. Foto KTP belum dapat disimpan.');
-  const blob=await canvasToJpegBlob(canvas);
-  const path=`${KTP_PATH_PREFIX}/${draftToken}/ktp.jpg`;
-  const draftData={...initialData,ktp_path:path};
-  const {error:draftError}=await supabase.rpc('save_candidate_draft',{
-    p_access_token:draftToken,
-    p_data:draftData,
-    p_cv_filename:cvFilename||null
-  });
-  if(draftError)throw draftError;
-  const {error:uploadError}=await supabase.storage.from(KTP_BUCKET).upload(path,blob,{
-    contentType:'image/jpeg',
-    upsert:true
-  });
-  if(uploadError)throw uploadError;
-  ktpPath=path;
-  initialData={...initialData,ktp_path:path};
-  writeLocalInitialDraft(initialData);
-  return path;
-}
-async function runOcr(canvas){
-  if(!window.Tesseract)throw new Error('Mesin OCR belum tersedia. Coba lagi atau gunakan input manual setelah tiga percobaan.');
-  const status=$('#ocr-status');
-  if(status)status.textContent='Membaca teks KTP…';
-  let result;
-  try{
-    result=await window.Tesseract.recognize(canvas,'ind+eng',{
-      logger:m=>{
-        if(m.status==='recognizing text'&&status){
-          status.textContent=`OCR ${ocrAttempts}/3 · membaca ${Math.round((m.progress||0)*100)}%`;
-        }
-      }
-    });
-  }catch(first){
-    result=await window.Tesseract.recognize(canvas,'eng');
-  }
-  const parsed=extractKtpText(result.data?.text||'');
-  const useful=['nik','nama','tempat_lahir','tanggal_lahir','gender','alamat_jalan','alamat_rt','alamat_desa','alamat_kecamatan'].some(k=>parsed[k]);
-  if(!useful)throw new Error('Tulisan KTP belum terbaca. Pastikan kartu fokus, tidak silau, dan masuk bingkai.');
-  return parsed;
-}
 async function processKtpCanvas(canvas){
   const status=$('#ocr-status');
-  if(ocrAttempts>=3)throw new Error('Batas tiga percobaan OCR tercapai. Gunakan input manual.');
+  if(ocrAttempts>=3){
+    if(status)status.textContent='Tiga percobaan OCR telah digunakan. Isi data secara manual; foto KTP sudah tersimpan.';
+    const manual=$('#manual-entry');if(manual)manual.hidden=!ktpPath;
+    return;
+  }
   try{
-    if(status)status.textContent='Menyimpan foto KTP secara aman…';
-    await uploadKtpPhoto(canvas);
+    if(status)status.textContent='Menyimpan foto KTP secara privat…';
+    const blob=await canvasToJpeg(canvas);
+    const path=await saveKtpPhoto(blob);
+    ktpPath=path;
     ocrAttempts+=1;
-    if(status)status.textContent=`Foto tersimpan · percobaan OCR ${ocrAttempts}/3…`;
-    const parsed=await runOcr(canvas);
-    initialData={...initialData,...parsed,ktp_path:ktpPath};
+    if(status)status.textContent=`Foto KTP tersimpan · percobaan OCR ${ocrAttempts}/3…`;
+    let parsed;
+    try{
+      parsed=await requestServerOcr(blob);
+      if(!hasUsefulOcr(parsed))throw new Error('OCR server tidak menemukan bidang identitas yang cukup.');
+    }catch(serverError){
+      if(status)status.textContent='Layanan OCR server tidak tersedia; mencoba OCR browser…';
+      parsed=await requestBrowserOcr(canvas,status);
+    }
+    if(!hasUsefulOcr(parsed))throw new Error('Data KTP belum cukup terbaca. Pastikan foto fokus dan tidak silau.');
+    initialData={...initialData,...parsed,ktp_path:path};
     writeLocalInitialDraft(initialData);
     stopCamera();
     showForm();
   }catch(error){
-    const message=error?.message||'Foto KTP belum dapat dibaca.';
     if(status){
       status.textContent=ocrAttempts>=3
-        ? `Tiga percobaan selesai. ${message} Anda dapat melanjutkan dengan mengisi data secara manual; foto KTP tetap tersimpan.`
-        : `Percobaan ${ocrAttempts}/3 gagal. ${message} Silakan ambil foto ulang.`;
+        ? `Tiga percobaan OCR selesai. ${error?.message||'KTP belum terbaca.'} Anda dapat mengisi data secara manual; foto tetap tersimpan.`
+        : `Percobaan ${ocrAttempts}/3 belum berhasil. ${error?.message||'Silakan ambil foto ulang.'}`;
     }
-    if(ocrAttempts>=3&&ktpPath){
-      const manual=$('#manual-entry');if(manual)manual.hidden=false;
-    }
+    const manual=$('#manual-entry');
+    if(manual)manual.hidden=!(ocrAttempts>=3&&ktpPath);
+    const capture=$('#capture-ktp');
+    if(capture&&ocrAttempts>=3){capture.disabled=true;capture.textContent='Batas OCR tercapai';}
     throw error;
   }
 }
