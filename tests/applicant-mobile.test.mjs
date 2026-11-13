@@ -59,8 +59,9 @@ test('region dropdowns are hierarchical, cached, and never load the full village
 test('revised family, education, foreign-language, work, and emergency-contact fields are present',async()=>{
   const js=await read('assets/js/applicant.js');
   const duration=await read('supabase/migrations/20261113124500_experience_duration.sql');
-  assert.match(js,/ayah_umur.*min:0/);
-  assert.match(js,/ibu_umur.*min:0/);
+  assert.match(js,/ayah_umur.*pattern:/);
+  assert.match(js,/ibu_umur.*pattern:/);
+  assert.match(js,/0 \/ - jika meninggal/);
   assert.match(js,/Jumlah saudara kandung selain Anda/);
   assert.match(js,/value:'3\+',label:'3 atau lebih'/);
   assert.match(js,/const n=i\\+2,p=`saudara\\$\\{n\\}_`/);
