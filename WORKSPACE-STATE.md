@@ -23,18 +23,18 @@ Updated: 2026-11-13 (Asia/Jakarta)
 - Remove the browser's call to `/functions/v1/ktp-ocr`.
 - Replace the old Edge Function source with an HTTP 410 retirement response; it must not forward images or call upstream OCR services.
 - Remove the obsolete `services/ktp-ocr` Docker service sources from this branch.
-- Commit `a0ff5a6807f926a95b067a883145dc68b4b80bc1` contains the browser-only path and 410 Edge Function source. GitHub Actions confirmed `npm run check` passes; `npm test` reported 22/23 due solely to an incorrect test expectation (`instance.terminate()` versus the actual cleanup helper `terminateWorker()`), now corrected in this follow-up.
+- Commit `a0ff5a6807f926a95b067a883145dc68b4b80bc1` contains the browser-only path and 410 Edge Function source. GitHub Actions confirmed `npm run check` passes; `npm test` reported 22/23 due solely to an incorrect test expectation (`instance.terminate()` versus the actual cleanup helper `terminateWorker()`), corrected in `9555e4fc9ae99d636fc2babf76abc208332ab5aa`; the second run revealed the cleanup helper is a `const terminateWorker=async` arrow function, so the source assertion is corrected in this follow-up.
 
 ## Validation and environment notes
 - Latest confirmed branch HEAD: `a0ff5a6807f926a95b067a883145dc68b4b80bc1`; do not assume an uploaded checkpoint overrides the live GitHub ref.
-- `npm run check` passed on that commit. `npm test` failed 1/23 only at the worker-termination source assertion; the implementation calls `worker.terminate()` inside `terminateWorker()` and the assertion is being aligned with the implementation.
+- `npm run check` passed on that commit. `npm test` failed 1/23 only at the worker-termination source assertion; the implementation calls `worker.terminate()` inside `terminateWorker()` and the first correction still used the wrong declaration syntax; the assertion now targets `const terminateWorker=async` and `await worker.terminate()`.
 - Tests available: `npm run check` and `npm test` (Node.js 22; GitHub Actions workflow `.github/workflows/portkar-checks.yml`).
 - Local clone/test execution is unavailable in this workspace because outbound DNS resolution for `github.com` failed; push commits to the working branch to trigger GitHub Actions and verify its result.
-- Supabase deployment of the 410 Edge Function has not yet been verified.
+- Supabase Edge Function `ktp-ocr` is currently ACTIVE at version 4 and its retrieved deployed source returns HTTP 410 without any upstream call.
 - Supabase security advisor currently reports SECURITY DEFINER RPC exposure warnings, two RLS-enabled tables without policies (`admin_login_credentials`, `candidate_drafts`), and disabled leaked-password protection; review without changing access controls blindly.
 
 ## Next batches
-1. Verify this OCR test correction and deploy the 410 `ktp-ocr` Edge Function to Supabase; then continue with persistent, TTL-bounded region lookup cache and request sequencing to prevent stale province/regency/district/village responses from repainting dropdowns.
+1. Re-run CI after this corrected source assertion; then implement persistent, TTL-bounded region lookup cache and request sequencing to prevent stale province/regency/district/village responses from repainting dropdowns.
 2. Guard asynchronous postal-code lookups against a changed village selection; keep using the existing village postal lookup RPC.
 3. MITRA teal/orange/ivory/sage theme and identify the original company logo asset (the branch currently uses a text-only `PK` placeholder; do not fabricate an original logo).
 4. Reconcile migrations, tests, and docs; audit form/draft persistence/HR panel and compatibility; verify CI and Supabase advisors.
