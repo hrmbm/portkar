@@ -792,7 +792,10 @@ async function uploadCv(file){
     if(error)throw error;
     cvFilename=file.name;
     name.textContent=cvFilename;
-    status.textContent='CV tersimpan';
+    status.textContent='CV berhasil diunggah dan tersimpan.';
+    const prompt=$('#cv-disc-prompt');if(prompt)prompt.hidden=false;
+    $('#cv-continue-submit')?.addEventListener('click',()=>setWizardStep(stepNames.length-1,{push:true}));
+    $('#cv-do-later')?.addEventListener('click',()=>{if(prompt)prompt.hidden=true;});
     await flushDraft(form);
   }catch(error){
     status.textContent=error.message||'CV belum tersimpan.';saveState('Belum tersimpan',true);
