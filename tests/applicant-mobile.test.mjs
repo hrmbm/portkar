@@ -69,7 +69,7 @@ test('revised family, education, foreign-language, work, and emergency-contact f
   assert.match(js,/data-education-row/);
   assert.match(js,/D1:4,D2:5,D3:6,D4:7,S1:8/);
   assert.match(js,/Inggris.*Mandarin.*Arab.*Jepang.*Rusia.*Jerman.*Prancis.*Latin.*Lainnya/);
-  assert.match(js,/<strong>KEMAMPUAN BAHASA \(SELAIN BAHASA INDONESIA\)<\\/strong>/);
+  assert.ok(js.includes('<strong>KEMAMPUAN BAHASA (SELAIN BAHASA INDONESIA)</strong>'));
   assert.match(js,/kontak_darurat_nama/);
   assert.match(js,/kontak_darurat_telepon/);
   assert.doesNotMatch(js,/referensi_count|Jumlah referensi|REFERENSI/);
