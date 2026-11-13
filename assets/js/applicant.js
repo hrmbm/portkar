@@ -77,6 +77,8 @@ let saveTimer = null;
 let saveInFlight = Promise.resolve();
 let mediaStream = null;
 let cameraFallback = false;
+let ocrAttempts = 0;
+let villageSearchTimer = null;
 
 const selectOptions = (options, selected) => options.map(o => {
   const item = typeof o === 'string' ? {value:o,label:o} : o;
@@ -553,94 +555,206 @@ function cameraCropCanvas(){
   const scale=Math.max(box.width/video.videoWidth,box.height/video.videoHeight);
   const renderedW=video.videoWidth*scale,renderedH=video.videoHeight*scale;
   const offsetX=(box.width-renderedW)/2,offsetY=(box.height-renderedH)/2;
-  const sx=Math.max(0,(frame.left-box.left-offsetX)/scale);
-  const sy=Math.max(0,(frame.top-box.top-offsetY)/scale);
-  const sw=Math.min(video.videoWidth-sx,frame.width/scale);
-  const sh=Math.min(video.videoHeight-sy,frame.height/scale);
+  const sx=Math.max(0,(frame.left-box.left-offsetX)/scale),sy=Math.max(0,(frame.top-box.top-offsetY)/scale);
+  const sw=Math.min(video.videoWidth-sx,frame.width/scale),sh=Math.min(video.videoHeight-sy,frame.height/scale);
   if(sw<80||sh<50)throw new Error('Posisi KTP belum masuk bingkai.');
-  const canvas=document.createElement('canvas');
-  const factor=Math.min(2,1800/sw);
+  const canvas=document.createElement('canvas'),factor=Math.min(2,1800/sw);
   canvas.width=Math.round(sw*factor);canvas.height=Math.round(sh*factor);
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-  enhanceForOcr(canvas);
-  return canvas;
+  canvas.getContext('2d',{willReadFrequently:true}).drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+  enhanceForOcr(canvas);return canvas;
 }
 function enhanceForOcr(canvas){
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  const image=ctx.getImageData(0,0,canvas.width,canvas.height),d=image.data;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true}),image=ctx.getImageData(0,0,canvas.width,canvas.height),d=image.data;
   for(let i=0;i<d.length;i+=4){
-    const gray=.299*d[i]+.587*d[i+1]+.114*d[i+2];
-    const contrast=Math.max(0,Math.min(255,(gray-118)*1.38+128));
+    const gray=.299*d[i]+.587*d[i+1]+.114*d[i+2],contrast=Math.max(0,Math.min(255,(gray-118)*1.38+128));
     d[i]=d[i+1]=d[i+2]=contrast;
   }
   ctx.putImageData(image,0,0);
 }
-async function runOcr(canvas){
-  if(!window.Tesseract)throw new Error('Kamera siap, tetapi OCR tidak tersedia.');
-  const status=$('#ocr-status');
-  if(status)status.textContent='Membaca…';
+function canvasToJpeg(canvas){
+  return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Foto KTP tidak dapat disiapkan.')),'image/jpeg',0.9));
+}
+async function ensureKtpDraft(){
+  if(!draftToken)draftToken=newCandidateToken();
+  const {error}=await supabase.rpc('save_candidate_draft',{
+    p_access_token:draftToken,p_data:{...initialData},p_cv_filename:cvFilename||null
+  });
+  if(error)throw error;
+}
+async function saveKtpPhoto(blob){
+  if(blob.size>8*1024*1024)throw new Error('Ukuran foto KTP maksimal 8 MB.');
+  await ensureKtpDraft();
+  const path=`candidate-identity/${draftToken}/ktp.jpg`;
+  const {error}=await supabase.storage.from('candidate-identity').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+  if(error)throw error;
+  initialData.ktp_path=path;
+  writeLocalInitialDraft(initialData);
+  const {error:draftError}=await supabase.rpc('save_candidate_draft',{
+    p_access_token:draftToken,p_data:{...initialData},p_cv_filename:cvFilename||null
+  });
+  if(draftError)throw draftError;
+  return path;
+}
+function normalizeOcrServiceResponse(response){
+  const raw=response?.data||response;
+  const out={};
+  if(raw.nik)out.nik=String(raw.nik).replace(/\D/g,'').slice(0,16);
+  if(raw.nama)out.nama=String(raw.nama).trim();
+  if(raw.tempat_lahir)out.tempat_lahir=String(raw.tempat_lahir).replace(/[,\s]+$/,'').trim();
+  const date=String(raw.tgl_lahir||raw.tanggal_lahir||'').trim();
+  const dm=date.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if(dm)out.tanggal_lahir=`${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+  if(raw.jenis_kelamin)out.gender=/PEREMPUAN/i.test(raw.jenis_kelamin)?'P':'L';
+  if(raw.agama)out.agama=String(raw.agama).toLocaleLowerCase('id-ID').replace(/\b\p{L}/gu,c=>c.toUpperCase());
+  if(raw.status_perkawinan){
+    const status=String(raw.status_perkawinan).toLocaleUpperCase('id-ID');
+    out.status_kawin=/BELUM/.test(status)?'Belum kawin':/CERAI\s*MATI/.test(status)?'Cerai mati':/CERAI\s*HIDUP/.test(status)?'Cerai hidup':/KAWIN/.test(status)?'Kawin':'';
+  }
+  const address=raw.alamat||{};
+  if(address.name)out.alamat_jalan=String(address.name).trim();
+  const rtRw=String(address.rt_rw||'').replace(/\D/g,'');
+  if(rtRw.length>=6){out.alamat_rt=rtRw.slice(0,3);out.alamat_rw=rtRw.slice(3,6);}
+  else{
+    const match=String(address.rt_rw||'').match(/(\d{1,3})\D+(\d{1,3})/);
+    if(match){out.alamat_rt=match[1].padStart(3,'0');out.alamat_rw=match[2].padStart(3,'0');}
+  }
+  if(address.kel_desa)out.alamat_desa=String(address.kel_desa).trim();
+  if(address.kecamatan)out.alamat_kecamatan=String(address.kecamatan).trim();
+  if(address.kabupaten){
+    const city=String(address.kabupaten).trim(),match=city.match(/^(Kabupaten|Kota)\s*/i);
+    out.alamat_kota_jenis=match?.[1]||'Kabupaten';out.alamat_kota_nama=city.replace(/^(Kabupaten|Kota)\s*/i,'').trim();
+  }
+  if(address.provinsi)out.alamat_provinsi=String(address.provinsi).replace(/^\s*PROVINSI\s*/i,'').replace(/[\n-]+$/g,'').trim();
+  return out;
+}
+async function requestServerOcr(blob){
+  const formData=new FormData();
+  formData.append('image',new File([blob],'ktp.jpg',{type:'image/jpeg'}));
+  formData.append('ocr_choice','easyocr');
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(`${SUPABASE_URL.replace(/\/$/,'')}/functions/v1/ktp-ocr`,{
+      method:'POST',
+      headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${SUPABASE_PUBLISHABLE_KEY}`},
+      body:formData,signal:controller.signal
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok||payload.error)throw new Error(payload.message||payload.error||'Layanan OCR server belum tersedia.');
+    return normalizeOcrServiceResponse(payload);
+  }finally{clearTimeout(timeout);}
+}
+async function requestBrowserOcr(canvas,status){
+  if(!window.Tesseract)throw new Error('OCR server belum tersedia dan OCR browser tidak dapat dimuat.');
   let result;
   try{
     result=await window.Tesseract.recognize(canvas,'ind+eng',{logger:m=>{
-      if(m.status==='recognizing text'&&status)status.textContent=`Membaca ${Math.round((m.progress||0)*100)}%`;
+      if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
     }});
-  }catch(first){result=await window.Tesseract.recognize(canvas,'eng');}
-  const parsed=extractKtpText(result.data?.text||'');
-  const useful=['nik','nama','tempat_lahir','tanggal_lahir','gender','alamat_jalan','alamat_rt','alamat_desa','alamat_kecamatan'].some(k=>parsed[k]);
-  if(!useful)throw new Error('Tulisan KTP belum terbaca. Atur posisi dan cahaya, lalu ambil ulang.');
-  initialData={...initialData,...parsed};
+  }catch{
+    result=await window.Tesseract.recognize(canvas,'eng',{logger:m=>{
+      if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
+    }});
+  }
+  return extractKtpText(result.data?.text||'');
+}
+function hasUsefulOcr(data){
+  const nik=String(data?.nik||'').replace(/\D/g,'');
+  return /^\d{16}$/.test(nik)||Boolean(data?.nama&& (data?.tanggal_lahir||data?.tempat_lahir||data?.alamat_jalan));
+}
+async function runOcr(canvas){
+  const status=$('#ocr-status');
+  if(status)status.textContent='Menyimpan foto KTP…';
+  const blob=await canvasToJpeg(canvas);
+  const path=await saveKtpPhoto(blob);
+  if(status)status.textContent='Foto tersimpan. Mengirim ke OCR…';
+  let parsed=null,serverError=null;
+  try{parsed=await requestServerOcr(blob);}catch(error){serverError=error;}
+  if(!hasUsefulOcr(parsed||{})){
+    if(status)status.textContent='Menjalankan OCR gratis di perangkat…';
+    const fallback=await requestBrowserOcr(canvas,status);
+    if(hasUsefulOcr(fallback))parsed=fallback;
+  }
+  if(!hasUsefulOcr(parsed||{})){
+    const message=serverError?.message||'Tulisan KTP belum terbaca.';
+    throw new Error(message);
+  }
+  initialData={...initialData,...parsed,ktp_path:path};
   writeLocalInitialDraft(initialData);
   stopCamera();
   showForm();
 }
 async function startCamera(){
   const video=$('#ktp-video'),status=$('#camera-status'),fallback=$('#ktp-fallback');
-  if(!navigator.mediaDevices?.getUserMedia){cameraFallback=true;fallback.hidden=false;if(status)status.textContent='Kamera langsung tidak tersedia di browser ini.';return;}
+  if(!navigator.mediaDevices?.getUserMedia){
+    cameraFallback=true;fallback.hidden=false;
+    if(status)status.textContent='Kamera langsung tidak tersedia. Gunakan kamera ponsel untuk mengambil foto.';
+    return;
+  }
   try{
     mediaStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},focusMode:{ideal:'continuous'}}});
-    video.srcObject=mediaStream;await video.play();
-    $('#capture-ktp').disabled=false;
+    video.srcObject=mediaStream;await video.play();$('#capture-ktp').disabled=false;
     if(status)status.textContent='';
   }catch(error){
     cameraFallback=true;fallback.hidden=false;$('#capture-ktp').disabled=true;
-    if(status)status.textContent='Izinkan kamera atau gunakan kamera ponsel.';
+    if(status)status.textContent='Izinkan akses kamera atau gunakan kamera ponsel.';
   }
+}
+function showOcrFailure(error){
+  ocrAttempts++;
+  const status=$('#ocr-status');
+  if(status)status.textContent=`Percobaan ${ocrAttempts}/3 belum berhasil. ${error?.message||'Pastikan foto fokus, tidak silau, dan seluruh KTP terlihat.'}`;
+  const manual=$('#manual-entry');
+  if(manual)manual.hidden=ocrAttempts<3;
+  const button=$('#capture-ktp');
+  if(button)button.textContent=ocrAttempts>=3?'Coba foto lagi':'Ambil ulang foto KTP';
 }
 async function processPhotoFile(file){
   if(!file)return;
-  if(!/^image\/(jpeg|png|webp)$/i.test(file.type)){saveState('Format foto tidak didukung.',true);return;}
-  if(file.size>8*1024*1024){saveState('Ukuran foto maksimal 8 MB.',true);return;}
-  const status=$('#ocr-status');if(status)status.textContent='Membaca…';
+  if(!/^image\/(jpeg|png|webp)$/i.test(file.type)){showOcrFailure(new Error('Format foto tidak didukung. Gunakan JPG, PNG, atau WebP.'));return;}
+  if(file.size>8*1024*1024){showOcrFailure(new Error('Ukuran foto maksimal 8 MB.'));return;}
+  const status=$('#ocr-status');
   try{
-    const bitmap=await createImageBitmap(file);
-    // The native camera fallback opens the phone's rear camera first. Crop to the
-    // exact horizontal KTP ratio instead of treating the upload as a document.
-    const ratio=1.586,sw=Math.min(bitmap.width,bitmap.height*ratio),sh=sw/ratio;
+    if(status)status.textContent='Menyiapkan foto KTP…';
+    const bitmap=await createImageBitmap(file),ratio=1.586,sw=Math.min(bitmap.width,bitmap.height*ratio),sh=sw/ratio;
     const sx=(bitmap.width-sw)/2,sy=(bitmap.height-sh)/2;
     const canvas=document.createElement('canvas');canvas.width=1800;canvas.height=Math.round(1800/ratio);
     canvas.getContext('2d').drawImage(bitmap,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
     bitmap.close?.();enhanceForOcr(canvas);await runOcr(canvas);
-  }catch(error){
-    if(status)status.textContent=error.message||'KTP belum terbaca.';
-    // Stay on the camera screen so the candidate can retake the photo.
-    if(mediaStream)stopCamera();
-    if(cameraFallback){const input=$('#ktp-fallback-input');if(input)input.value='';}
-  }
+  }catch(error){showOcrFailure(error);}
+  finally{const input=$('#ktp-fallback-input');if(input)input.value='';}
+}
+async function captureAndRead(){
+  const button=$('#capture-ktp');
+  if(button)setBusy(button,true,'Menyimpan & membaca…');
+  try{await runOcr(cameraCropCanvas());}
+  catch(error){showOcrFailure(error);}
+  finally{if($('#capture-ktp'))setBusy($('#capture-ktp'),false,ocrAttempts>=3?'Ambil foto KTP':'Ambil ulang foto KTP');}
+}
+async function ensureManualPhotoBeforeShow(){
+  if(!initialData.ktp_path)throw new Error('Foto KTP belum tersimpan. Ambil foto KTP terlebih dahulu.');
+  writeLocalInitialDraft(initialData);stopCamera();showForm();
 }
 function showKtpScreen(){
-  root.innerHTML=`<div class="step-top"><span class="stage-kicker">PORTAL KARIR</span><span class="step-number">IDENTITAS</span></div><div class="wizard-progress"><span style="width:8%"></span></div><section class="candidate-card ktp-card"><h1 class="candidate-title">Pindai KTP</h1><div class="ktp-camera-frame" id="ktp-camera-frame"><video id="ktp-video" autoplay muted playsinline></video><div class="ktp-guide" id="ktp-guide"><span>POSISIKAN KTP</span></div><div class="ktp-camera-corners" aria-hidden="true"></div></div><div class="ocr-status" id="ocr-status" aria-live="polite"></div><div class="camera-status" id="camera-status"></div><div id="ktp-fallback" class="ktp-fallback" hidden><button type="button" class="btn btn-secondary full" id="open-phone-camera">Buka kamera ponsel</button></div><input type="file" id="ktp-fallback-input" accept="image/*" capture="environment" hidden><div class="candidate-actions camera-actions"><button type="button" class="btn btn-primary" id="capture-ktp" disabled>Ambil foto KTP</button></div><button type="button" class="manual-entry" id="manual-entry">Isi tanpa foto KTP</button></section>`;
-  startCamera();
-  $('#capture-ktp').addEventListener('click',async()=>{
-    const button=$('#capture-ktp');setBusy(button,true,'Membaca KTP…');
-    try{const canvas=cameraCropCanvas();await runOcr(canvas);}catch(error){const status=$('#ocr-status');if(status)status.textContent=error.message||'Foto gagal diproses.';}
-    finally{if($('#capture-ktp'))setBusy($('#capture-ktp'),false);}
-  });
+  root.innerHTML=`<div class="step-top"><span class="stage-kicker">PORTAL KARIR</span><span class="step-number">IDENTITAS</span></div>
+    <div class="wizard-progress"><span style="width:8%"></span></div>
+    <section class="candidate-card ktp-card"><h1 class="candidate-title">Pindai KTP</h1>
+      <p class="candidate-sub">Pastikan seluruh sisi depan KTP masuk bingkai, terang, dan tidak terpotong. Foto akan disimpan untuk verifikasi HR.</p>
+      <div class="ktp-camera-frame" id="ktp-camera-frame"><video id="ktp-video" autoplay muted playsinline></video><div class="ktp-guide" id="ktp-guide"><span>POSISIKAN KTP</span></div><div class="ktp-camera-corners" aria-hidden="true"></div></div>
+      <div class="ocr-status" id="ocr-status" aria-live="polite"></div><div class="camera-status" id="camera-status"></div>
+      <div id="ktp-fallback" class="ktp-fallback" hidden><button type="button" class="btn btn-secondary full" id="open-phone-camera">Buka kamera / pilih foto KTP</button></div>
+      <input type="file" id="ktp-fallback-input" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+      <div class="candidate-actions camera-actions"><button type="button" class="btn btn-primary" id="capture-ktp" disabled>Ambil foto KTP</button></div>
+      <button type="button" class="manual-entry" id="manual-entry" hidden>OCR gagal 3 kali — lanjut isi data manual</button>
+    </section>`;
+  $('#capture-ktp').addEventListener('click',captureAndRead);
   $('#open-phone-camera').addEventListener('click',()=>$('#ktp-fallback-input').click());
   $('#ktp-fallback-input').addEventListener('change',event=>processPhotoFile(event.target.files?.[0]));
-  $('#manual-entry').addEventListener('click',()=>{stopCamera();writeLocalInitialDraft({});showForm();});
+  $('#manual-entry').addEventListener('click',()=>ensureManualPhotoBeforeShow().catch(error=>{
+    const status=$('#ocr-status');if(status)status.textContent=error.message;
+  }));
+  ensureKtpDraft().catch(error=>{const status=$('#camera-status');if(status)status.textContent='Draft belum tersimpan: '+error.message;});
+  startCamera();
 }
-
 async function uploadCv(file){
   const status=$('#cv-upload-state'),name=$('#cv-filename');
   if(!file)return;
