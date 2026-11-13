@@ -1,0 +1,13 @@
+services:
+  ktp-ocr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: portkar-ktp-ocr:1.0.0
+    container_name: portkar-ktp-ocr
+    restart: unless-stopped
+    environment:
+      API_KEY: ${KTP_OCR_API_KEY:?set KTP_OCR_API_KEY in the host environment}
+    ports:
+      - "127.0.0.1:8000:8000"
+    init: true
