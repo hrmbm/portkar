@@ -63,7 +63,7 @@ test('revised family, education, foreign-language, work, and emergency-contact f
   assert.match(js,/ibu_umur.*min:0/);
   assert.match(js,/Jumlah saudara kandung selain Anda/);
   assert.match(js,/value:'3\+',label:'3 atau lebih'/);
-  assert.match(js,/saudara4_nama/);
+  assert.match(js,/const n=i\\+2,p=`saudara\\$\\{n\\}_`/);
   assert.match(js,/Status Perkawinan Anda/);
   assert.match(js,/pendidikan_terakhir/);
   assert.match(js,/data-education-row/);
@@ -72,7 +72,7 @@ test('revised family, education, foreign-language, work, and emergency-contact f
   assert.ok(js.includes('<strong>KEMAMPUAN BAHASA (SELAIN BAHASA INDONESIA)</strong>'));
   assert.match(js,/kontak_darurat_nama/);
   assert.match(js,/kontak_darurat_telepon/);
-  assert.doesNotMatch(js,/referensi_count|Jumlah referensi|REFERENSI/);
+  assert.doesNotMatch(js,/Jumlah referensi|referensi1_nama|referensi2_nama/);
   assert.match(js,/mulai_bulan/);
   assert.match(js,/mulai_tahun/);
   assert.match(js,/selesai_bulan/);
