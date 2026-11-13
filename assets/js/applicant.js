@@ -7,7 +7,6 @@ const root = $('#candidate-app');
 const choices = items => items.map(value => ({value,label:value}));
 const educationChoices = choices(['Tidak sekolah','SD / Sederajat','SMP / Sederajat','SMA / SMK','D1','D2','D3','D4','S1','S2','S3']);
 const religionChoices = choices(['Islam','Kristen Protestan','Katolik','Hindu','Buddha','Konghucu','Kepercayaan','Lainnya']);
-const provinceChoices = choices(['Aceh','Sumatera Utara','Sumatera Barat','Riau','Kepulauan Riau','Jambi','Sumatera Selatan','Kepulauan Bangka Belitung','Bengkulu','Lampung','DKI Jakarta','Banten','Jawa Barat','Jawa Tengah','DI Yogyakarta','Jawa Timur','Bali','Nusa Tenggara Barat','Nusa Tenggara Timur','Kalimantan Barat','Kalimantan Tengah','Kalimantan Selatan','Kalimantan Timur','Kalimantan Utara','Sulawesi Utara','Gorontalo','Sulawesi Tengah','Sulawesi Barat','Sulawesi Selatan','Sulawesi Tenggara','Maluku','Maluku Utara','Papua','Papua Barat','Papua Selatan','Papua Tengah','Papua Pegunungan','Papua Barat Daya']);
 const personalFields = [
   {name:'posisi',label:'Posisi yang dilamar',required:true},
   {name:'nama',label:'Nama lengkap',required:true},
@@ -828,9 +827,6 @@ async function uploadCv(file){
     cvFilename=file.name;
     name.textContent=cvFilename;
     status.textContent='CV tersimpan';
-    const prompt=$('#cv-disc-prompt');if(prompt)prompt.hidden=false;
-    $('#cv-continue-submit')?.addEventListener('click',()=>setWizardStep(stepNames.length-1,{push:true}));
-    $('#cv-do-later')?.addEventListener('click',()=>{if(prompt)prompt.hidden=true;});
     await flushDraft(form);
   }catch(error){
     status.textContent=error.message||'CV belum tersimpan.';saveState('Belum tersimpan',true);
@@ -842,29 +838,23 @@ function showForm(){
   root.innerHTML=renderForm(initialData);
   const form=$('#application-form');
   $('#cv-filename').textContent=cvFilename||'Unggah CV (PDF)';
-  hydrateAddress(form,initialData).catch(error=>saveState(error.message||'Daftar wilayah belum dapat dimuat.',true));
-  $('#cv-upload-state').textContent=cvFilename?'CV tersimpan':'';
+  $('#cv-upload-state').textContent=cvFilename?'CV berhasil tersimpan.':'';
   const numericFields=['nik','alamat_rt','alamat_rw'];
   form.addEventListener('input',event=>{
     const el=event.target;
     if(numericFields.includes(el.name))normalizeDigitInput(el,el.name==='nik'?16:3);
     if(el.name==='telepon'||el.name==='kontak_darurat_telepon')normalizeDigitInput(el,16);
     if(el.dataset.formatNumber==='idr')formatCurrencyInput(el);
-    if(el.name==='alamat_desa_search'){
-      clearTimeout(villageSearchTimer);
-      villageSearchTimer=setTimeout(()=>{
-        const districtId=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
-        const term=el.value.trim();
-        if(districtId&&(term.length>=2||term.length===0))loadVillages(form,districtId,term).catch(error=>saveState(error.message||'Desa tidak dapat dimuat.',true));
-      },280);
-    }
     if(['nama','tanggal_lahir','gender'].includes(el.name))syncApplicantRow(form);
     if(addressFields.some(field=>field.name===el.name))updateAddressPreview(form);
     if(el.name==='alamat_desa_search'){
       clearTimeout(villageSearchTimer);
       villageSearchTimer=setTimeout(()=>{
         const districtId=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
-        loadVillages(form,districtId,el.value).catch(error=>saveState(error.message||'Data desa gagal dimuat.',true));
+        const term=el.value.trim();
+        if(districtId&&(term.length>=2||term.length===0)){
+          loadVillages(form,districtId,term).catch(error=>saveState(error.message||'Daftar desa gagal dimuat.',true));
+        }
       },280);
     }
     queueDraftSave(form);
@@ -872,15 +862,12 @@ function showForm(){
   form.addEventListener('change',event=>{
     const key=event.target.name;
     if(['alamat_provinsi_id','alamat_kota_id','alamat_kecamatan_id','alamat_desa_id'].includes(key)){
-      onRegionChange(form,key).catch(error=>saveState(error.message||'Alamat wilayah gagal dimuat.',true));
-      syncApplicantRow(form);return;
+      onRegionChange(form,key).catch(error=>saveState(error.message||'Wilayah gagal dimuat.',true));
+      return;
     }
     if(['alamat_rt','alamat_rw'].includes(key))padRtRw(event.target);
-    if(['alamat_provinsi_id','alamat_kota_id','alamat_kecamatan_id','alamat_desa_id'].includes(key)){
-      onRegionChange(form,key).catch(error=>saveState(error.message||'Wilayah gagal dimuat.',true));
-    }else if(['saudara_count','anak_count','bahasa_count','kerja_count'].includes(key)){
-      rerenderGroups(form);
-    }else if(key==='status_kawin'||key==='domisili_berbeda'||key==='pendidikan_terakhir'||/^bahasa[1-4]$/.test(key)){
+    if(['saudara_count','anak_count','bahasa_count','kerja_count'].includes(key))rerenderGroups(form);
+    else if(key==='status_kawin'||key==='domisili_berbeda'||key==='pendidikan_terakhir'||/^bahasa[1-4]$/.test(key)||/_masih_bekerja$/.test(key)){
       updateDynamic(form,collect(form));
     }
     syncApplicantRow(form);updateAddressPreview(form);queueDraftSave(form);
@@ -892,16 +879,14 @@ function showForm(){
     if(!validateCurrentStep(form))return;
     if(activeStep<stepNames.length-1){setWizardStep(activeStep+1,{push:true});return;}
     if(!cvFilename){error.textContent='Unggah CV dalam format PDF.';return;}
-    if(!initialData.ktp_path&&!form.querySelector('[name="ktp_path"]')?.value){
-      error.textContent='Foto KTP belum tersimpan. Silakan ulangi proses foto KTP.';return;
-    }
+    const ktpPathValue=form.querySelector('[name="ktp_path"]')?.value||initialData.ktp_path||ktpPath;
+    if(!ktpPathValue){error.textContent='Foto KTP belum tersimpan. Silakan ulangi proses foto KTP.';return;}
     if(!validateWholeForm(form))return;
     await submitApplication(form);
   });
   rerenderGroups(form);
   setWizardStep(activeStep);
   queueDraftSave(form);
-  if(cvFilename)$('#cv-upload-state').textContent='CV tersimpan';
   history.replaceState({portalForm:true,step:activeStep,root:true},'',location.href);
   history.pushState({portalForm:true,step:activeStep,root:false},'',location.href);
   writeLocalDraft(form);
