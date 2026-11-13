@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17243a">
+  <title>Portal Karir · HR Console</title>
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body class="admin-page">
+  <div id="desktop-guard" class="desktop-guard">
+    <div class="guard-mark">PK</div>
+    <div class="guard-title">Portal Karir</div>
+  </div>
+
+  <div id="login-view" class="login-screen">
+    <div class="login-art">
+      <div class="brand-lockup"><span class="brand-symbol">PK</span><span>PORTAL KARIR</span></div>
+      <div class="login-art-copy"><span class="eyebrow">HUMAN RESOURCES</span><h1>Talent, tracked<br>with clarity.</h1><p>Satu ruang kerja untuk seluruh proses rekrutmen.</p></div>
+      <div class="login-art-foot">RECRUITMENT MANAGEMENT</div>
+    </div>
+    <div class="login-panel">
+      <div class="login-box">
+        <div class="brand-lockup dark"><span class="brand-symbol">PK</span><span>PORTAL KARIR</span></div>
+        <span class="eyebrow muted">ADMIN ACCESS</span>
+        <h2>Selamat datang</h2>
+        <p class="subtle">Masuk menggunakan username dan PIN.</p>
+        <form id="login-form" autocomplete="on">
+          <label class="field-label" for="login-user">User</label>
+          <input id="login-user" class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" required placeholder="Username">
+          <label class="field-label" for="login-pin">PIN</label>
+          <input id="login-pin" class="input" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" autocomplete="current-password" required placeholder="PIN">
+          <button class="btn btn-primary full" type="submit">Masuk <span aria-hidden="true">↗</span></button>
+          <div id="login-error" class="form-error" role="alert"></div>
+        </form>
+      </div>
+      <div class="login-copyright">© Portal Karir · HR Console</div>
+    </div>
+  </div>
+
+  <div id="admin-shell" class="admin-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand"><span class="brand-symbol">PK</span><div><b>PORTAL KARIR</b><small>HR CONSOLE</small></div></div>
+      <div class="sidebar-label">WORKSPACE</div>
+      <nav id="admin-nav" class="side-nav">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">▦</span>Dashboard</button>
+        <button class="nav-item" data-view="stage1"><span class="nav-icon">◷</span>Rekrutmen Tahap 1</button>
+        <button class="nav-item" data-view="stage2"><span class="nav-icon">▤</span>Rekrutmen Tahap 2</button>
+        <button class="nav-item" data-view="stage3"><span class="nav-icon">◈</span>Rekrutmen Tahap 3</button>
+        <button class="nav-item" data-view="employees"><span class="nav-icon">♙</span>Tracking Karyawan</button>
+        <button class="nav-item" data-view="print"><span class="nav-icon">▧</span>Cetak Lamaran</button>
+        <div class="nav-divider"></div>
+        <button class="nav-item" data-view="reports"><span class="nav-icon">▥</span>Laporan Rekrutmen</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="sidebar-status"><span class="status-dot"></span>Supabase connected</div><button id="logout-btn" class="logout-btn">Keluar <span>↗</span></button></div>
+    </aside>
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div><div class="eyebrow muted">RECRUITMENT MANAGEMENT</div><div id="page-title" class="topbar-title">Dashboard</div></div>
+        <div class="topbar-right"><span class="live-label"><span class="status-dot"></span>Live data</span><div class="profile-chip"><span class="profile-avatar">HR</span><span><b id="admin-name">HR Admin</b><small>Administrator</small></span></div></div>
+      </header>
+      <section id="admin-content" class="admin-content"></section>
+    </main>
+  </div>
+  <script type="module" src="assets/js/admin.js"></script>
+</body>
+</html>

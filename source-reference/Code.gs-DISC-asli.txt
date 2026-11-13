@@ -1,0 +1,896 @@
+/**
+ * ============================================================================
+ *  SCRIPT 2 — processNewCandidate : REKAP JAWABAN -> HASIL DISC -> PDF
+ * ============================================================================
+ *  Versi final:
+ *  - Fuzzy matching header, aman jika judul form diedit manual (emoji/bold/spasi).
+ *  - Anti double PDF melalui kolom "Status PDF".
+ *  - PDF disimpan dalam folder target, subfolder "Hasil DISC".
+ *  - Tampilan PDF dibuat lebih padat agar lebih memungkinkan menjadi 2 halaman.
+ *  - Rumus inti DISC tetap dipertahankan 100%.
+ *  - UPDATE: processNewCandidate sekarang memproses SEMUA kandidat yang belum diproses.
+ * ============================================================================
+ */
+
+var TARGET_FOLDER_ID = '1APe9qgWl_AkjjUDIwCk4lAw7gCI-lV5p';
+
+// ---------------------------------------------------------------------------
+// DATA MASTER (diekstrak 1:1 dari Master DISC.xlsx)
+// ---------------------------------------------------------------------------
+
+var QUESTIONS = [
+  ["Gampang gaul, Mudah setuju", "Percaya, Mudah percaya pada orang", "Petualang, Mengambil resiko", "Toleran, Menghormati"],
+  ["Lembut suara, Pendiam", "Optimistik, Visioner", "Pusat Perhatian, Suka gaul", "Pendamai, Membawa Harmoni"],
+  ["Menyemangati orang", "Berusaha sempurna", "Bagian dari kelompok", "Ingin membuat tujuan"],
+  ["Menjadi frustrasi", "Menyimpan perasaan saya", "Menceritakan sisi saya", "Siap beroposisi"],
+  ["Hidup, Suka bicara", "Gerak cepat, Tekun", "Usaha menjaga keseimbangan", "Usaha mengikuti aturan"],
+  ["Kelola waktu secara efisien", "Sering terburu-buru, Merasa tertekan", "Masalah sosial itu penting", "Suka selesaikan apa yang saya mulai"],
+  ["Tolak perubahan mendadak", "Cenderung janji berlebihan", "Tarik diri di tengah tekanan", "Tidak takut bertempur"],
+  ["Penyemangat yang baik", "Pendengar yang baik", "Penganalisa yang baik", "Delegator yang baik"],
+  ["Hasil adalah penting", "Lakukan dengan benar, Akurasi penting", "Dibuat menyenangkan", "Mari kerjakan bersama"],
+  ["Akan berjalan terus tanpa kontrol diri", "Akan membeli sesuai dorongan hati", "Akan menunggu, Tanpa tekanan", "Akan mengusahakan  yang kuinginkan"],
+  ["Ramah, Mudah bergabung", "Unik, Bosan rutinitas", "Aktif mengubah sesuatu", "Ingin hal-hal yang pasti"],
+  ["Non-konfrontasi, Menyerah", "Dipenuhi hal detail", "Perubahan pada menit terakhir", "Menuntut, Kasar"],
+  ["Ingin kemajuan", "Puas dengan segalanya", "Terbuka memperlihatkan perasaan", "Rendah hati, Sederhana"],
+  ["Tenang, Pendiam", "Bahagia, Tanpa beban", "Menyenangkan, Baik hati", "Tak gentar, Berani"],
+  ["Menggunakan waktu berkualitas dgn teman", "Rencanakan masa depan, Bersiap", "Bepergian demi petualangan baru", "Menerima ganjaran atas tujuan yg dicapai"],
+  ["Aturan perlu dipertanyakan", "Aturan membuat adil", "Aturan membuat bosan", "Aturan membuat aman"],
+  ["Pendidikan, Kebudayaan", "Prestasi, Ganjaran", "Keselamatan, keamanan", "Sosial, Perkumpulan kelompok"],
+  ["Memimpin, Pendekatan langsung", "Suka bergaul, Antusias", "Dapat diramal, Konsisten", "Waspada, Hati-hati"],
+  ["Tidak mudah dikalahkan", "Kerjakan sesuai perintah, Ikut pimpinan", "Mudah terangsang, Riang", "Ingin segalanya teratur, Rapi"],
+  ["Saya akan pimpin mereka", "Saya akan melaksanakan", "Saya akan meyakinkan mereka", "Saya dapatkan fakta"],
+  ["Memikirkan orang dahulu", "Kompetitif, Suka tantangan", "Optimis, Positif", "Pemikir logis, Sistematik"],
+  ["Menyenangkan orang, Mudah setuju", "Tertawa lepas, Hidup", "Berani, Tak gentar", "Tenang, Pendiam"],
+  ["Ingin otoritas lebih", "Ingin kesempatan baru", "Menghindari konflik", "Ingin petunjuk yang jelas"],
+  ["Dapat diandalkan, Dapata dipercaya", "Kreatif, Unik", "Garis dasar, Orientasi hasil", "Jalankan standar yang tinggi, Akurat"]
+];
+
+var SCORE_P = [
+  ["S", "I", "*", "C"], ["C", "D", "*", "S"], ["I", "*", "*", "D"], ["C", "S", "*", "D"],
+  ["I", "D", "S", "*"], ["C", "D", "I", "S"], ["S", "I", "*", "*"], ["I", "S", "C", "D"],
+  ["D", "C", "*", "*"], ["*", "D", "S", "I"], ["S", "*", "D", "C"], ["*", "C", "I", "D"],
+  ["D", "S", "I", "*"], ["C", "I", "S", "D"], ["S", "C", "I", "D"], ["*", "C", "I", "S"],
+  ["*", "D", "S", "I"], ["D", "*", "*", "C"], ["D", "S", "I", "*"], ["D", "S", "I", "C"],
+  ["S", "D", "I", "*"], ["S", "*", "D", "C"], ["*", "I", "S", "*"], ["*", "I", "D", "C"]
+];
+
+var SCORE_K = [
+  ["S", "I", "D", "C"], ["*", "D", "I", "S"], ["I", "C", "S", "*"], ["C", "S", "I", "D"],
+  ["*", "D", "S", "C"], ["*", "D", "I", "S"], ["*", "I", "C", "D"], ["I", "S", "C", "D"],
+  ["D", "C", "I", "S"], ["C", "D", "S", "*"], ["*", "I", "D", "C"], ["S", "*", "I", "D"],
+  ["D", "*", "*", "C"], ["C", "I", "*", "D"], ["S", "*", "I", "D"], ["D", "*", "I", "S"],
+  ["C", "D", "S", "*"], ["D", "I", "S", "*"], ["D", "*", "I", "C"], ["*", "S", "I", "*"],
+  ["S", "D", "I", "C"], ["S", "I", "D", "C"], ["D", "*", "S", "C"], ["S", "I", "*", "*"]
+];
+
+var TABLE_MOST = [
+  [-6, -7, -5.7, -6], [-5.3, -4.6, -4.3, -4.7], [-4, -2.5, -3.5, -3.5], [-2.5, -1.3, -1.5, -1.5],
+  [-1.7, 1, -0.7, 0.5], [-1.3, 3, 0.5, 2], [0, 3.5, 1, 3], [0.5, 5.3, 2.5, 5.3],
+  [1, 5.7, 3, 5.7], [2, 6, 4, 6], [3, 6.5, 4.6, 6.3], [3.5, 7, 5, 6.5],
+  [4, 7, 5.7, 6.7], [4.7, 7, 6, 7], [5.3, 7, 6.5, 7.3], [6.5, 7, 6.5, 7.3],
+  [7, 7.5, 7, 7.3], [7, 7.5, 7, 7.5], [7, 7.5, 7, 8], [7.5, 7.5, 7.5, 8],
+  [7.5, 8, 7.5, 8]
+];
+
+var TABLE_LEAST = [
+  [7.5, 7, 7.5, 7.5], [6.5, 6, 7, 7], [4.3, 4, 6, 5.6], [2.5, 2.5, 4, 4],
+  [1.5, 0.5, 2.5, 2.5], [0.5, 0, 1.5, 1.5], [0, -2, 0.5, 0.5], [-1.3, -3.5, -1.3, 0],
+  [-1.5, -4.3, -2, -1.3], [-2.5, -5.3, -3, -2.5], [-3, -6, -4.3, -3.5], [-3.5, -6.5, -5.3, -5.3],
+  [-4.3, -7, -6, -5.7], [-5.3, -7.2, -6.5, -6], [-5.7, -7.2, -6.7, -6.5], [-6, -7.2, -6.7, -7],
+  [-6.5, -7.3, -7, -7.3], [6.7, -7.3, -7.2, -7.5], [7, -7.3, -7.3, -7.7], [-7.3, -7.5, -7.5, -7.9],
+  [-7.5, -8, -8, -8]
+];
+
+var TABLE_CHANGE = [
+  [-8, -8, -8, -7.5], [-7.5, -8, -8, -7.3], [-7, -8, -8, -7.3], [-6.8, -8, -8, -7],
+  [-6.75, -7, -7.5, -6.7], [-6.7, -6.7, -7.3, -6.7], [-6.5, -6.7, -7.3, -6.7], [-6.3, -6.7, -7, -6.5],
+  [-6.1, -6.7, -6.5, -6.3], [-5.9, -6.7, -6.5, -6], [-5.7, -6.7, -6.5, -5.85], [-5.3, -6.7, -6.5, -5.85],
+  [-4.3, -6.5, -6, -5.7], [-3.5, -6, -4.7, -4.7], [-3.25, -5.7, -4.3, -4.3], [-3, -4.7, -3.5, -3.5],
+  [-2.75, -4.3, -3, -3], [-2.5, -3.5, -2, -2.5], [-1.5, -3, -1.5, -0.5], [-1, -2, -1, 0],
+  [-0.5, -1.5, -0.5, 0.3], [-0.25, 0, 0, 0.5], [0, 0.5, 1, 1.5], [0.5, 1, 1.5, 3],
+  [0.7, 1.5, 2, 4], [1, 3, 3, 4.3], [1.3, 4, 3.5, 5.5], [1.5, 4.3, 4, 5.7],
+  [2, 5, 0, 6], [2.5, 5.5, 4.7, 6.3], [3.5, 6.5, 5, 6.5], [4, 6.7, 5.5, 6.7],
+  [4.7, 7, 6, 7], [4.85, 7.3, 6.2, 7.3], [5, 7.3, 6.3, 7.3], [5.5, 7.3, 6.5, 7.3],
+  [6, 7.3, 6.7, 7.3], [6.3, 7.3, 7, 7.3], [6.5, 7.3, 7.3, 7.3], [6.7, 7.3, 7.3, 7.5],
+  [7, 7.5, 7.3, 8], [7.3, 8, 7.3, 8], [7.3, 8, 7.5, 8], [7.5, 8, 8, 8],
+  [8, 8, 8, 8]
+];
+
+var PATTERN_NAMES = [
+  "C", "D", "C-D", "I-D", "I-D-C", "I-D-S", "I-S-D", "S-D-C", "D-I", "D-I-S",
+  "D-S", "C-I-S", "C-S-I", "I-S-C / I-C-S", "S", "C-S", "S-C", "D-C", "D-I-C",
+  "D-S-I", "D-S-C", "D-C-I", "D-C-S", "I", "I-S", "I-C", "I-C-D", "I-C-S",
+  "S-D", "S-I", "S-D-I", "S-I-D", "S-I-C", "S-C-D", "S-C-I", "C-I", "C-D-I",
+  "C-D-S", "C-I-D", "C-S-D"
+];
+
+var PATTERN_CONDITIONS = [
+  function(d,i,s,c){ return (d<=0) && (i<=0) && (s<=0) && (c>0); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s<=0) && (c<=0); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s<=0) && (c>0) && (c>=d); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s<=0) && (c<=0) && (i>=d); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s<=0) && (c>0) && (i>=d) && (d>=c); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s>0) && (c<=0) && (i>=d) && (d>=s); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s>0) && (c<=0) && (i>=s) && (s>=d); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s>0) && (c>0) && (s>=d) && (d>=c); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s<=0) && (c<=0) && (d>=i); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s>0) && (c<=0) && (d>=i) && (i>=s); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s>0) && (c<=0) && (d>=s); },
+  function(d,i,s,c){ return (d<=0) && (i>0) && (s>0) && (c>0) && (c>=i) && (i>=s); },
+  function(d,i,s,c){ return (d<=0) && (i>0) && (s>0) && (c>0) && (c>=s) && (s>=i); },
+  function(d,i,s,c){ return (d<=0) && (i>0) && (s>0) && (c>0) && (i>=s) && (i>=c); },
+  function(d,i,s,c){ return (d<=0) && (i<=0) && (s>0) && (c<=0); },
+  function(d,i,s,c){ return (d<=0) && (i<=0) && (s>0) && (c>0) && (c>=s); },
+  function(d,i,s,c){ return (d<=0) && (i<=0) && (s>0) && (c>0) && (s>=c); },
+  function(d,i,s,c){ return (i<=0) && (s<=0) && (d>0) && (c>0) && (d>=c); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (c>0) && (s<=0) && (d>=i) && (i>=c); },
+  function(d,i,s,c){ return (d>0) && (s>0) && (i>0) && (c<=0) && (d>=s) && (s>=i); },
+  function(d,i,s,c){ return (d>0) && (s>0) && (c>0) && (i<=0) && (d>=s) && (s>=c); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (c>0) && (s<=0) && (d>=c) && (c>=i); },
+  function(d,i,s,c){ return (d>0) && (s>0) && (c>0) && (i<=0) && (d>=c) && (c>=s); },
+  function(d,i,s,c){ return (d<=0) && (s<=0) && (c<=0) && (i>0); },
+  function(d,i,s,c){ return (i>0) && (s>0) && (d<=0) && (c<=0) && (i>=s); },
+  function(d,i,s,c){ return (i>0) && (c>0) && (d<=0) && (s<=0) && (i>=c); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (c>0) && (s<=0) && (i>=c) && (c>=d); },
+  function(d,i,s,c){ return (d<=0) && (i>0) && (s>0) && (c>0) && (i>=c) && (c>=s); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s>0) && (c<=0) && (s>=d); },
+  function(d,i,s,c){ return (i>0) && (s>0) && (d<=0) && (c<=0) && (s>=i); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s>0) && (c<=0) && (s>=d) && (d>=i); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (s>0) && (c<=0) && (s>=i) && (i>=d); },
+  function(d,i,s,c){ return (i>0) && (s>0) && (c>0) && (d<=0) && (s>=i) && (i>=c); },
+  function(d,i,s,c){ return (d>0) && (i<=0) && (s>0) && (c>0) && (s>=c) && (c>=d); },
+  function(d,i,s,c){ return (i>0) && (s>0) && (c>0) && (d<=0) && (s>=c) && (c>=i); },
+  function(d,i,s,c){ return (i>0) && (c>0) && (d<=0) && (s<=0) && (c>=i); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (c>0) && (s<=0) && (c>=d) && (d>=i); },
+  function(d,i,s,c){ return (d>0) && (s>0) && (c>0) && (i<=0) && (c>=d) && (d>=s); },
+  function(d,i,s,c){ return (d>0) && (i>0) && (c>0) && (s<=0) && (c>=i) && (i>=d); },
+  function(d,i,s,c){ return (d>0) && (s>0) && (c>0) && (i<=0) && (c>=s) && (s>=d); }
+];
+
+var DEF_DATA = [
+  {"pattern": "C", "title": "LOGICAL THINKER", "traits": ["Pendiam", "Anti Kritik", "Perfeksionis", "Cenderung Santai", "Detail", "Empati", "Rapi", "Organized", "Kaku pada Metode & Prosedur"], "professions": "Planner (any function), Engineer (Installation, Technical), Technical/Research (Chemist Technician), Academic, Statistician, Government Worker, IT Management, Prison Officer, Quality Controller.", "description": "Seorang yang praktis, cakap dan unik. Ia orang yang mampu menilai diri sendiri dan kritis terhadap dirinya dan orang lain. Ia menyukai hal yang detil dan logis; secara alamiah ia sangat analitis. Karena menyimpan informasi, ia meneliti isu berulang-ulang kali. Ia cenderung malu dan tertutup; ia hati-hati dalam membuat keputusan yang berdasarkan pada logika, bukan emosi, selalu menggunakan pertanyaan \"bagaimana dan mengapa\". Ia mengerjakan sesuatu dengan sistematis dan akurat. Ia rapi dan terorganisir sebab ia merasa bahwa keadaan berantakan sama dengan mutu yang rendah; demikian juga, rapi dan teratur merupakan mutu yang tinggi. Sangat teliti dalam segala sesuatu seperti halnya dalam pekerjaan dan penggunaan waktunya. Ia merencanakan dan mengorganisir semua sisi kehidupannya. Kelambanan sangat mengganggunya dan tak dapat ditolerir."},
+  {"pattern": "D", "title": "ESTABLISHER", "traits": ["Individualis", "Ego Tinggi, Kurang Sensitif", "Kurang Pertimbangan", "Efektif", "High Motivation", "Bersemangat Tinggi", "Percaya Diri, cenderung Nekat", "Kreatif", "Terlalu Dominan", "Agresif", "Terlalu Dinamis", "Penuh Ambisi"], "professions": "Attorney, Researcher, Sales Representative, Planning Consultant, Transport Personnel, Production (Director, Manager, Supervisor), Technologist, Strategic Planning, Trouble Shooting, Marketing Services, Consultant, Engineering (Director, Manager, Supervisor) and Self-Employment.", "description": "Memiliki rasa ego yang tinggi dan cenderung invidualis dengan standard yang sangat tinggi. Ia lebih suka menganalisa masalah sendirian daripada bersama orang lain. Rasa egoisnya yang kuat membuatnya tidak nyaman di bawah kendali orang lain; ia lebih suka menjadi \"boss\" dan menetapkan standard tinggi baik untuk dirinya maupun orang lain. Ia menghindari sesuatu yang biasa-biasa dan cenderung mencari tantangan yang baru. Ia menyukai petualangan dan kadang-kadang beralih ke dalam petualangan baru sebelum mempertimbangkannya secara menyeluruh. Mampu memimpin situasi dan orang lain dalam rangka mencapai sasarannya; ia ingin selalu unggul dalam persaingan dengan taruhan apapun."},
+  {"pattern": "D / C-D", "title": "DESIGNER", "traits": ["Sensitif", "Kurang Cepat", "Anti Tekanan ", "Terlalu Mandiri", "Kurang Percaya Orang Lain", "Anti Kritik", "Dingin", "Kreatif", "Result Oriented", "Suka Tantangan"], "professions": "Engineering (Management, Research, Design), Research (R&D), Planning, Chemist, Accountancy, Specialist, Finance, Technician, Quality Control, Production Planning/Management, Design Engineer, Bookkeeper, Chemist Technician, Safety Officer, Librarian.", "description": "Seorang yang sangat berorientasi pada tugas dan sensitif pada permasalahan. Ia lebih mempedulikan tugas yang ada dibanding orang-orang di sekitarnya, termasuk perasaan mereka. Sangat kukuh/keras dan mempunyai pendekatan yang efektif dalam pemecahan masalah. Oleh karena sifat alamiah dan keinginannya akan hasil yang terukur, Akan tampak dingin, tidak berperasaan dan menjaga jarak. Ia membuat keputusan berdasar pada fakta, bukan emosi. Cenderung pendiam dan tidak mudah percaya."},
+  {"pattern": "D / I-D", "title": "NEGOTIATOR", "traits": ["Suka Bergaul", "Anti Rutin", "Aktif", "Terlalu Percaya Diri", "Agresif", "Optimis", "Kurang Detail", "Result Oriented"], "professions": "Sales and Marketing (Directing, Manager, Person), Public Relations, Recruitment Consultant, Politician, Director, Self-Employed, Hotelier, Travel Agent, Trainer, Hospitality, Lawyer, Solicitor, Motivators, Team Leader, Politician, Trainer, Lecturer, Theatrical Agent, General Management and Leading People, Attorney.", "description": "Merupakan seorang pemimpin integratif yang bekerja dengan dan melalui orang lain.  Ia ramah, memiliki perhatian yang tinggi akan orang dan juga mempunyai kemampuan untuk memperoleh hormat dan penghargaan dari berbagai tipe orang.  Melakukan pekerjaannya dengan cara yang bersahabat, baik dalam mencapai sasarannya maupun meyakinkan pandangannya kepada orang lain.  Ia tidak begitu memperhatikan hal-hal kecil.  Kadang bertindak sesuai dengan kata hati/impulsif, terlalu antusias dan sangat banyak bicara.  Ia terlalu berlebihan menilai kemampuannya dalam memotivasi atau mengubah perilaku orang lain.  Mencari kebebasan dari rutinitas, menginginkan otoritas/wewenang dan juga prestise.  Ia menginginkan aktivitas yang bervariasi dan bekerja lebih efisien jika data-data analitis disediakan oleh orang lain.  Menginginkan penugasan yang mengutamakan mobilitas dan tantangan."},
+  {"pattern": "D / I-D-C", "title": "CONFIDENT & DETERMINED", "traits": ["Pandai Memilih Orang", "Leader", "Good Interpersonal Skill", "Dominan", "Agresif", "Perfeksionis", "Good Communication Skill", "Aktif", "Need Recognition n Reward", "Kurang Peduli pada Aturan", "Terburu-buru"], "professions": "Specialist/Technical Selling (Computer, Finance, Engineer and others, Chef, Technical/Capital Equipment Selling), Financial (Manager, Specialist), Computer Hardware Sales, Engineering (Manager, Designer, Buyer, Draughtsman), Project Engineer, Sales Engineer, Consultant, Trainer, Lecturer, Hotelier, Insurance, Mortgage and Finance Sales, Teacher, Travel Agent, Personnel and Marketing Services.", "description": "Sangat berorientasi terhadap tugas dan juga menyukai orang.  Ia sangat baik dalam menarik orang/recruiting.  Seorang yang bersahabat, tetapi menyukai keadaan di mana tugas-tugas harus dilakukan dengan benar.  Ia kadang-kadang tampak dingin dan mendominasi.  Ia juga bisa sangat fokus pada tugas dan melupakan orang-orang di sekitarnya.  Sangat mengharapkan orang-orang terlibat dalam proyeknya, tetapi tidak memperdulikan apa yang diinginkan oleh orang-orang itu.  Ia perlu mendengar dan memikirkan  apa yang menjadi keinginan orang di sekitarnya, khususnya kesempatan untuk mencoba.  Ia sangat membutuhkan persetujuan sosial seperti halnya ia sangat mempercayai orang lain.  Karena itu, ia kadang-kadang berlebihan dalam menilai orang dan kemampuannya.  Ia tampak tidak konsisten dan tidak karuan karena ketidakmampuannya berkonsentrasi dan fokus dalam waktu yang lama.  Perlu belajar untuk secara sungguh-sungguh mendengarkan orang-orang di sekitarnya dari pada selalu berpikir apa yang ingin dikatakan.  Ia mempunyai kemampuan logika yang tinggi ketika ia mau menggunakannya."},
+  {"pattern": "D / I-D-S", "title": "REFORMER", "traits": ["Mudah Bergaul", "Leader", "Sadar Diri", "Butuh Pujian & Penghargaan", "Cepat Percaya Orang", "Mudah Simpati & Empati", "Motivator", "Optimis & Positif", "Anti Aturan", "Kurang Detail", "Terlalu Selektif"], "professions": "Hotelier, Customer Service, Complaints Manager, Recruiting Agent, Sales (Manager/Person), Marketing Services, Public Relations, Politician, Computer Software Sales, Lecturer, Engineering and Production (Manager/Supervisor).", "description": "Seorang yang bersahabat dan sosial; ia juga suka mengendalikan situasi dan menjadi pemimpin.  Ia menyelesaikan tugasnya melalui keterampilan sosialnya; ia peduli dan menerima orang lain.  Ia berkonsentrasi pada tugas yang ada di tangannya sampai selesai dan akan minta bantuan orang lain jika perlu.  Ia menyadari keterbatasannya dan meminta bantuan jika memerlukannya.  Ia disukai dan orang ingin menolongnya.  Senang membagi kebanggaannya dengan kelompok; ia seorang team player tetapi juga team leader.  Menginginkan popularitas dan pengakuan."},
+  {"pattern": "D / I-S-D", "title": "MOTIVATOR", "traits": ["Leader (Kelompok Kecil)", "Supporter", "Sosialisasi Baik", "Butuh Ketegasan", "Butuh Pujian & Penghargaan", "Kurang Detail", "Agak Kaku"], "professions": "Hotelier, Community Counseling, Customer Service, Complaints Manager, Community Work, Recruitment Consultant, Hospitality, Teacher, Telemarketing, Production Manager, Complaints Manager, Recruiting Agent, Sales (Manager/Person), Marketing Services, Public Relations, Politician, Call Centre Manager, Lecturer, Engineering and Production (Manager/Supervisor).", "description": "Seorang yang menampilkan gaya bersemangat ketika termotivasi pada sasaran.  Ia lebih suka memimpin atau melibatkan diri, walaupun ia juga mau melayani sebagai pembantu.  Ia membutuhkan pengakuan dan penghargaan serta senang pada peran pendukung.  Ia peduli kepada orang-orang di sekitarnya dan akan mempertimbangkan perasaan orang lain dalam proses pengambilan keputusan.  Menampilkan keterampilan berhubungan dan berkomunikasi dengan sangat baik.  Ia akan berusaha keras menyelesaikan tugas dengan cepat dan efisien."},
+  {"pattern": "D / S-D-C / S-C-D", "title": "INQUIRER", "traits": ["Full Self Control", "Sabar", "Penuh Pertimbangan", "Good Interpersonal", "Selektif", "Lambat Adaptasi", "Inisiatif kurang", "Result Oriented", "Kaku dan Keras Kepala", "Good Service", "Kurang dlm hal Managerial"], "professions": "Directing, Managing or Supervising (in Engineering, Accountancy, Research and Development and Computing disciplines), Research Manager, Scientific Work, Accountant, Administration, Project Engineer, Draughtsman, Designer, Analyst, Finance, Chemist, Technical Service Support, Flight Attendant, Technician, Service Engineer, Service Manager, Security Specialist.", "description": "Seorang yang sabar, terkontrol dan suka menggali fakta dan jalan keluar.  Ia tenang dan ramah.  Ia merencanakan pekerjaan dengan hati-hati, tetapi agresif, menanyakan sesuatu serta mengumpulkan data pendukung.  Kemudian ia bekerja dengan konsisten dengan arahan yang benar.  Menjadi individu yang penuh perhatian, rendah hati, dan ia berhubungan baik dengan hampir semua orang.  Seorang yang konsisten dan suka menolong. People skill darinya melebihi orientasi tugasnya."},
+  {"pattern": "D-I", "title": "PENGAMBIL KEPUTUSAN", "traits": ["Pekerja Keras", "Leader", "Banyak Minat", "Dingin / Task Oriented", "Kurang Pergaulan", "Kontrol Emosi Kurang", "Suka Tantangan", "Cepat Bosan", "Anti Aturan", "Kurang Detail", "Kurang Peduli Wewenang", "Argumentatif"], "professions": "General Management (Directing/Managing/Supervising, Public Relations, Business Management, Conflict Resolution, Industrial Relations, Business Consultant, Trouble Shooting, Sales and Sales Management, Marketing, Promoting, Production (Director, Manager, Supervisor), Consultancy, Publishing, Sales Executive, Promotional Work, Brokers, Self-Employment, Advertising, Lecturing, Dealing/Broking.", "description": "Tidak basa-basi dan tegas, ia cenderung merupakan seorang invidualis yang kuat. Ia berpandangan jauh ke depan, progresif dan mau berkompetisi untuk mencapai sasaran. DI seorang yang selalu ingin tahu dan mempunyai minat dengan cakupan yang luas. Ia seorang yang logis, kritis dan tajam dalam memecahkan masalah. Sering kali ia tampak imajinatif. Ia mempunyai kemampuan memimpinan yang baik. Ia kadang tampak keras kepala atau dingin karena orientasi dan prioritasnya pada tugas cenderung melebihi orientasi terhadap sesama. Ia mencanangkan standard tinggi pada dirinya dan akan sangat kritis ketika standard ini tidak dicapai. Ia juga menempatkan standard tinggi pada orang-orang di sekitarnya, serta mengutamakan kesempurnaan. Ia menginginkan otoritas yang jelas dan menyukai tugas-tugas baru."},
+  {"pattern": "D-I-S", "title": "DIRECTOR", "traits": ["Pengelola", "Enerjik", "Kurang Detail", "Mudah Bosan", "Agresif", "Arogan", "Kurang Focus"], "professions": "Engineering and Production (Directing, Managing, Supervising), Sales, Sales Management, Service Manager, Distribution, Public Relations, Office Management, Account Manager, Customer Service, Retail Manager, IT, Lecturer, Logistics, Manager-General, National Accounts Manager, Teacher, Projects Manager.", "description": "Fokus pada penyelesaian pekerjaan dan menunjukkan penghargaan yang tinggi kepada orang lain.  Ia memiliki kemampuan untuk menggerakkan orang dan pekerjaan dikarenakan keterampilannya berpikir ke depan dan hubungan antar manusia.  Tidak berorientasi detil, ia fokus pada target secara keseluruhan dengan menyerahkan hal detil kepada orang lain.  Enerjik dan sosial, ia mampu memotivasi orang lain sambil menyelesaikan pekerjaannya.  Ia menampilkan rasa percaya diri dan mampu meyakinkan orang lain.  Sekali ia memutuskan sesuatu, ia akan terus mengerjakannya dan bertahan sampai selesai."},
+  {"pattern": "D-S", "title": "SELF-MOTIVATED", "traits": ["Objektif & Analitis", "Mandiri", "Good Planner", "Komitmen thd Target", "Menghindari Konflik"], "professions": "Engineering and Production (Directing, Managing, Supervising), Project Management, Researcher, Chemist (R&D), Planner, Engineering (R&D), Systems Analyst, Commercial Planner, Computer Engineer, Programmer, IT, Other computer-related disciplines, Technical Trouble Shooting and Directing, Lawyer, Solicitor, Development Engineer, Work Study, Barrister, Attorney.", "description": "Seorang yang obyektif dan analitis.  Ia ingin terlibat dalam situasi, dan ia juga ingin memberikan bantuan dan dukungan kepada orang yang ia hormati.  Secara internal termotivasi oleh target pribadi, ia berorientasi terhadap pekerjaannya tapi juga menyukai hubungan dengan sesama.  Karena determinasinya yang kuat, ia sering berhasil dalam berbagai hal; karakternya yang tenang, stabil dan daya tahannya yang tinggi memiliki kontribusi dalam keberhasilannya.  Ulet dalam memulai pekerjaan. Ia akan berusaha keras untuk mencapai sasarannya.  Seorang yang mandiri dan cermat serta memiliki tindak lanjut yang baik."},
+  {"pattern": "I / C-I-S", "title": "MEDIATOR", "traits": ["Loyal", "Tight Scheduled", "Curious", "Sensitif", "Good Communication Skill", "Good Analitical Think", "Good Interpersonal Skill", "Cepat Beradaptasi", "Anti Kritik", "Not Leader", "Work/Play Conflict"], "professions": "Engineering and Production (Supervisor, Installer, Technician, Service and Design), Research (Supervisor, Chemist, Lab. Technician), Trainer, Finance (Supervisor, Accountant, Advisor), Public Relations, Administration, Office Administrator, Market Analyst, System Analyst, Programmer, Selling (Technical/Service).", "description": "Merupakan individu yang berorientasi pada orang, ia mampu menggabungkan ketepatan dan loyalitas.  Ia cenderung peka dan mempunyai standard yang tinggi.  Ia menginginkan stabilitas dan berorientasi terhadap sasaran.  Ia menginginkan pengakuan sosial dan perhatian pribadi.  Ia bersahabat, antusias, informal, banyak bicara, dan mungkin sangat mencemaskan apa yang dipikirkan oleh orang lain.  Ia menolak agresi, dan mengharapkan suasana harmonis.  Ia cenderung cukup cerdas dalam berbagai hal. Ia merupakan pencari fakta yang sangat baik dan akan membuat keputusan yang baik setelah mengumpulkan fakta dan data pendukung."},
+  {"pattern": "I / C-S-I", "title": "PRACTITIONER", "traits": ["Perfeksionis", "Quality Oriented", "Scheduled", "Anti Kejutan", "Good Interpersonal Skill", "Terlalu Detail", "Sistematis", "Kaku / Tidak fleksibel", "Monoton"], "professions": "Engineering and Production (Supervisor, Installer, Technician, Service and Design), Research (Supervisor, Chemist), Trainer, Finance (Manager, Supervisor, Accountant, Advisor), Public Relations-Administration, Purchasing, Chemist Research, Office Administrator, Computer Programmer, Market Analyst, System Analyst, Programmer, Research and Development Supervisor, Laboratory Technician, Legal, Selling (Technical/Service).", "description": "Merupakan individu yang berorientasi pada orang, ia mampu menggabungkan ketepatan dan loyalitas.  Ia cenderung peka dan mempunyai standard yang tinggi.  Ia menginginkan stabilitas dan berorientasi terhadap sasaran.  Ia menginginkan pengakuan sosial dan perhatian pribadi.  Bersahabat, antusias, informal, banyak bicara, dan mungkin sangat mencemaskan apa yang dipikirkan oleh orang lain.  Ia menolak agresi dan mengharapkan suasana harmonis.  Ia cenderung cukup cerdas dalam berbagai hal. Ia merupakan pencari fakta yang sangat baik dan akan membuat keputusan yang baik setelah mengumpulkan fakta dan data pendukung."},
+  {"pattern": "I-S-C / I-C-S", "title": "RESPONSIVE & THOUGHTFUL", "traits": ["High Energy", "Good Communication Skill", "To The Point", "Sensitif", "Banyak Bicara", "Need Recognation", "Need Socialism", "Anti thd Kritik", "Terlalu banyak bersosialisasi", "Leadership kurang", "Kurang Fokus", "Anti Deadline"], "professions": "Actors, Chef, Personnel, Welfare, Broadcasting, Training, Attorney, Teaching, Accounting, Technical Instructor, Accounting-General, Accounts Supervisor, Customer Services, Public Relations, Artist, Hotelier, Demonstrator, Florist/Floral Designer, Engineering (Sales, Service, Project, Draughtsman, Designer), Graphic Designer, Specialist (Soft/Services), Selling, Purchasing, Singers, Technical Instructor, Personnel Management, Politician, Supervising (Engineering, Production, Accounts), Administration Work, Sales Engineer, Secretarial, Industrial Relations Specialist.", "description": "Merupakan individu yang berorientasi pada orang dan lancar berkomunikasi serta loyal.  Ia cenderung sensitif dan mempunyai standard yang tinggi.  Keputusannya dibuat berdasarkan fakta dan data pendukung.  Ia sepertinya tidak bisa diam.  Ia perlu untuk lebih terus terang dan jangan terlalu subyektif.  Ia butuh pengakuan sosial dan perhatian pribadi; ia dapat cepat akrab dengan orang lain.  Ia bersahabat, antusias, informal, banyak bicara dan terlalu khawatir terhadap apa yang dipikirkan orang.  Ia menguasai banyak hal.  Ia ingin diterima sebagai anggota kelompok dan ingin mengetahui secara pasti apa yang diharapkan darinya sebelum ia memulai proyek baru."},
+  {"pattern": "S", "title": "SPECIALIST", "traits": ["Stabil & Konsisten", "Terkendali", "Nyaman di Belakang Layar", "Sabar", "Loyal", "Sulit Adaptasi", "Process Oriented", "Teguh", "Need for Peace", "Anti Perubahan", "Sulit Menentukan Prioritas"], "professions": "Administrative Work, Engineering and Production areas (Sales, Services, Project, Painter, Plumber, Draughtsman, Designer, Operative), Chef, Accounting, Telemarketing/Tele-Sales, Research and Development, Administrator, Florist/Floral Designer, Retail-General, Sales-General, Accounting-General, Service-General, Landscape Gardener.", "description": "Merupakan individu konsisten yang berusaha menjaga lingkungan/suasana yang tidak berubah.  Ia bekerja dengan baik bersama orang-orang dengan berbagai kepribadian karena perilakunya yang terkendali dan rendah hati.  Sabar, loyal dan suka menolong.  Persahabatan dikembangkannya dengan lambat dan selektif.  Ia tidak bosan dengan rutinitas dan sangat baik bekerja dengan petunjuk dan peraturan yang jelas. Ia mengharapkan bantuan dan supervisi pada saat mengawali proyek baru.  Ia butuh waktu untuk menyesuaikan diri dengan perubahan dan sungkan menjalankan \"cara-cara lama mengerjakan sesuatu\".  Ia akan menghindari konfrontasi dan berusaha sekuat tenaga memendam perasaannya."},
+  {"pattern": "S / C-S", "title": "PERFECTIONIST", "traits": ["Detail & Teliti", "Butuh Situasi Stabil", "Sistematik & Prosedural", "Menghindari Konflik", "Anti Kritik", "Lambat Memutuskan", "Sulit Adaptasi", "Pendendam", "Anti Perubahan"], "professions": "Researcher (Technician, Chemist, Quality Control), Engineer (Project, Draughtsman, Armed Forces, Designer), Statistician, Surveyor, Optician, Medical Specialist, Health Care, IT Management, Planner, Technical Writing, Production, Dentist, Quality Control, Planning, Dental Technician, Accounting, Computer Programmer, Psychologist, Surgeon, Architect, Medical Specialist.", "description": "Berpikir sistematis dan cenderung mengikuti prosedur dalam kehidupan pribadi dan pekerjaannya.  Teratur dan memiliki perencanaan yang baik, ia teliti dan fokus pada detil.  Bertindak dengan penuh kebijaksanaan, diplomatis dan jarang menentang rekan kerjanya dengan sengaja.  Ia sangat berhati-hati, sungguh-sungguh mengharapkan akurasi dan standard tinggi dalam pekerjaannya.  Ia cenderung terjebak dalam hal detil, khususnya jika harus memutuskan.  Menginginkan adanya petunjuk standard pelaksanaan kerja dan tanpa perubahan mendadak."},
+  {"pattern": "S-C", "title": "PEACEMAKER, RESPECTFULL & ACCURATE", "traits": ["Sulit Beradaptasi", "Anti Kritik", "Pendendam", "Sukar Berubah", "Detail", "Empati", "Memikirkan Dampak ke Orang Lain", "Terlalu Mendalam dalam Berpikir", "Concern ke Data dan Fakta", "Introvert", "Loyal"], "professions": "Office (Manager, Supervisor, Person), Chief Clerk, General Administrator, Production Supervisor, Planner, Accountant, Research and Development, Flight Attendant, Engineering (Project Manager, Supervisor, Technician), Computer Programmer, Draughtsman, Soft/Service Selling, Doctor, Cashier, Receptionist, Data Entry, Planner, Word Processing, Property Manager, Database Administrator, Health Care, Statistician, Nursing-Administration, Company Secretary, System Analyst, Programmer, Statistician, Accounting-General, Security Specialist.", "description": "Ia adalah orang yang baik secara alamiah dan sangat berorientasi detil.  Ia peduli dengan orang-orang di sekitarnya dan mempunyai kualitas yang membuatnya sangat teliti dalam penyelesaian tugas.  Ia mempertimbangkan sekelilingnya dengan hati-hati sebelum membuat keputusan untuk melihat pengaruhnya pada mereka; saat tertentu ia terlalu hati-hati.  Jika ia merasa seseorang memanfaatkan situasi, ia akan memperlambat kerjanya sehingga dapat mengamati apa yang sedang berlangsung di sekitarnya."},
+  {"pattern": "D-C", "title": "CHALLENGER", "traits": ["Seorang yang tekun", "Sensitif terhadap permasalahan", "Mempunyai keputusan yang kuat", "Kreatif  dalam memecahkan masalah", "Memiliki reaksi yang cepat", "Mampu mencari solusi permasalahan", "Banyak memberikan ide-ide.", "Usaha yang keras pada ketepatan", "Cenderung perfeksionis"], "professions": "Engineering (Management, Research, Design), Actuaries, Research (R&D), Planning, Chemist, Hospital Supervisor, Industrial Marketing, Investment Banking, Medical Administrator, Mortgage Brokers, Accountancy, Fund Management, Specialist Finance, Quality Control and Specialist work in any area where knowledge and experience is available, Production, Financial Services, Technical Management, Project Leader, Matron, Strategic Planning, Industrial Marketing.", "description": "Seorang yang sensitif terhadap permasalahan, dan memiliki kreativitas yang baik dalam memecahkan masalah. Ia dapat menyelesaikan tugas-tugas penting dalam waktu singkat karena mempunyai keputusan yang kuat. Seorang yang tekun dan memiliki reaksi yang cepat.  Ia akan meneliti dan mengejar semua kemungkinan yang ada dalam mencari solusi permasalahan.  Ia banyak memberikan ide-ide dengan berfokus pada pekerjaan. Usaha yang keras pada ketepatan akan mengimbangi keinginannya pada hasil yang terukur.  Ia cenderung perfeksionis dan dapat juga memperlambat pengambilan keputusan karena keinginannya untuk menentukan pilihan yang terbaik."},
+  {"pattern": "D-I-C", "title": "CHANCELLOR", "traits": ["Seorang yang ramah secara alami", "Menggabungkan kesenangan dengan pekerjaan", "Menyukai hubungan dengan sesama", "Menikmati interaksi dengan sesama", "Dapat mengerjakan hal-hal detil", "Ingin melakukan segala sesuatu dengan tepat", "Menilai orang dan tugas secara hati-hati", "Sering melalaikan perencanaan yang seksama", "Mudah beralih kepada proyek-proyek baru"], "professions": "Technical/Scientific (Directing, Management, Supervision), Engineering, Finance, Production Planning, Personnel Disciplines, Self-Employment, Credit Manager, Planner, Fund Management, Computer Hardware/Software Sales, IT, Business Consultant, Banking, Logistics, Lecturing, Work Study, Film Director, Transport, Consultancy, Industrial Relations and Computers (Selling, Software, Systems Analyst) and General Manager.", "description": "Ia menggabungkan antara kesenangan dengan pekerjaan/bisnis ketika melakukan sesuatu. Ia kelihatan menyukai hubungan dengan sesama tetapi juga dapat mengerjakan hal-hal detil. Ia ingin melakukan segala sesuatu dengan tepat, dan ia akan menyelesaikan tugasnya untuk meyakinkan ketepatan dan kelengkapannya. Seorang yang ramah secara alami dan menikmati interaksi dengan sesama, akan tetapi ia akan juga menilai orang dan tugas secara hati-hati; persahabatannya akan bergeser sesuai dengan dorongan hatinya pada orang lain di sekitarnya. Ia sering melalaikan perencanaan yang seksama dan akan beralih ke pada proyek-proyek baru tanpa pertimbangan yang menyeluruh."},
+  {"pattern": "D-S-I", "title": "DIRECTOR", "traits": ["Seorang yang obyektif dan analitis", "Ingin terlibat dalam situasi", "Ingin memberikan bantuan dan dukungan", "Termotivasi oleh target pribadi", "Berorientasi terhadap pekerjaannya", "Menyukai hubungan dengan sesama", "Mempunyai determinasi yang kuat", "Karakternya tenang", "Stabil dan daya tahannya tinggi", "Ulet dalam memulai pekerjaan", "Berusaha keras mencapai sasarannya", "Mandiri dan cermat"], "professions": "Engineering and Production (Directing, Managing, Supervising), Sales, Sales Management, Service Manager, Distribution, Public Relations, Creative Designer, Office Management, Chief Engineer, Business Consultant, Chief Financial Officer, Customer Service, National Accounts Manager, Chief Accountant, Lecturer, Projects Manager, Research Planning, Human Resources, Scientific Work, Security Specialist, Solicitor, Planner, Production Administrator.", "description": "Seorang yang obyektif dan analitis.  Ia ingin terlibat dalam situasi, dan ia juga ingin memberikan bantuan dan dukungan kepada orang yang ia hormati.  Secara internal termotivasi oleh target pribadi, ia berorientasi terhadap pekerjaannya tapi juga menyukai hubungan dengan sesama.  Karena determinasinya yang kuat, ia sering berhasil dalam berbagai hal; karakternya yang tenang, stabil dan daya tahannya yang tinggi memiliki kontribusi dalam keberhasilannya.  Ulet dalam memulai pekerjaan. Ia akan berusaha keras untuk mencapai sasarannya.  Seorang yang mandiri dan cermat serta memiliki tindak lanjut yang baik."},
+  {"pattern": "D-S-C", "title": "Director", "traits": ["Seorang yang obyektif dan analitis", "Ingin terlibat dalam situasi", "Ingin memberikan bantuan dan dukungan", "Termotivasi oleh target pribadi", "Berorientasi terhadap pekerjaannya", "Menyukai hubungan dengan sesama", "Mempunyai determinasi yang kuat", "Karakternya tenang", "Stabil dan daya tahannya tinggi", "Ulet dalam memulai pekerjaan", "Berusaha keras mencapai sasarannya", "Mandiri dan cermat"], "professions": "Engineering and Production (Directing, Managing, Supervising), Sales, Sales Management, Service Manager, Distribution, Public Relations, Creative Designer, Office Management, Chief Engineer, Business Consultant, Chief Financial Officer, Customer Service, National Accounts Manager, Chief Accountant, Lecturer, Projects Manager, Research Planning, Human Resources, Scientific Work, Security Specialist, Solicitor, Planner, Production Administrator.", "description": "Seorang yang obyektif dan analitis.  Ia ingin terlibat dalam situasi, dan ia juga ingin memberikan bantuan dan dukungan kepada orang yang ia hormati.  Secara internal termotivasi oleh target pribadi, ia berorientasi terhadap pekerjaannya tapi juga menyukai hubungan dengan sesama.  Karena determinasinya yang kuat, ia sering berhasil dalam berbagai hal; karakternya yang tenang, stabil dan daya tahannya yang tinggi memiliki kontribusi dalam keberhasilannya.  Ulet dalam memulai pekerjaan. Ia akan berusaha keras untuk mencapai sasarannya.  Seorang yang mandiri dan cermat serta memiliki tindak lanjut yang baik."},
+  {"pattern": "D-C-I", "title": "CHALLENGER", "traits": ["Seorang yang tekun", "Sensitif terhadap permasalahan", "Mempunyai keputusan yang kuat", "Kreatif  dalam memecahkan masalah", "Memiliki reaksi yang cepat", "Mampu mencari solusi permasalahan", "Banyak memberikan ide-ide.", "Usaha yang keras pada ketepatan", "Cenderung perfeksionis"], "professions": "Technical/Scientific (Directing, Management, Supervision), Engineering, Finance, Production Planning, Personnel Disciplines, Self-Employment, Credit Manager, Planner, Lecturing, Work Study, Transport, Consultancy, Industrial Relations and Computers (Selling, Software, Systems Analyst) and General Manager.", "description": "Seorang yang sensitif terhadap permasalahan, dan memiliki kreativitas yang baik dalam memecahkan masalah. Ia dapat menyelesaikan tugas-tugas penting dalam waktu singkat karena mempunyai keputusan yang kuat. Seorang yang tekun dan memiliki reaksi yang cepat.  Ia akan meneliti dan mengejar semua kemungkinan yang ada dalam mencari solusi permasalahan.  Ia banyak memberikan ide-ide dengan berfokus pada pekerjaan. Usaha yang keras pada ketepatan akan mengimbangi keinginannya pada hasil yang terukur.  Ia cenderung perfeksionis dan dapat juga memperlambat pengambilan keputusan karena keinginannya untuk menentukan pilihan yang terbaik."},
+  {"pattern": "D-C-S", "title": "CHALLENGER", "traits": ["Seorang yang tekun", "Sensitif terhadap permasalahan", "Mempunyai keputusan yang kuat", "Kreatif  dalam memecahkan masalah", "Memiliki reaksi yang cepat", "Mampu mencari solusi permasalahan", "Banyak memberikan ide-ide.", "Usaha yang keras pada ketepatan", "Cenderung perfeksionis"], "professions": "Engineering, Production and Finance (Directing, Administrating, Managing and Managing Specialist Work), Scientific, Research Planning, Personnel, Trouble Shooting, Credit Control, Chief Accountant, Accountant, Chief Engineer, Work Study, Consultancy, Designer, Draughtsman, Project Work, Security Specialist, Doctor, Attorney.", "description": "Seorang yang sensitif terhadap permasalahan, dan memiliki kreativitas yang baik dalam memecahkan masalah. Ia dapat menyelesaikan tugas-tugas penting dalam waktu singkat karena mempunyai keputusan yang kuat. Seorang yang tekun dan memiliki reaksi yang cepat.  Ia akan meneliti dan mengejar semua kemungkinan yang ada dalam mencari solusi permasalahan.  Ia banyak memberikan ide-ide dengan berfokus pada pekerjaan. Usaha yang keras pada ketepatan akan mengimbangi keinginannya pada hasil yang terukur.  Ia cenderung perfeksionis dan dapat juga memperlambat pengambilan keputusan karena keinginannya untuk menentukan pilihan yang terbaik."},
+  {"pattern": "I", "title": "COMMUNICATOR", "traits": ["Antusias", "Percaya", "Optimis", "Persuasif", "Bicara aktif", "Impulsif", "Emosional", "Ramah", "Inspirasional"], "professions": "Promoting, Demonstrating, Canvassing, Marketing Services, Public Relations, Lecturing, Advertising, Publican, Publishing, Hospitality, Retail-General, Human Resources, Journalist, Singers, Technical Writing, Tour Guide, Promotional Work, Hotelier, Dancers, Host, Actors, Travel Agent, Politician, and very soft selling.", "description": "Merupakan seorang yang antusias dan optimistik, ia lebih suka mencapai sasarannya melalui orang lain. Ia suka berhubungan dengan sesamanya - ia bahkan suka mengadakan “pesta” atau kegiatan untuk berkumpul, dan ini menunjukkan kepribadiannya yang ramah. Ia tidak suka bekerja sendirian dan cenderung bersama dengan orang lain dalam menyelesaikan proyek.  Perhatian dan fokusnya tidak sebaik apa yang dia inginkan -  maka ia membutuhkan energi yang besar untuk mampu bergerak cepat dari satu hal ke hal berikutnya tanpa penundaan.  Ia sangat menonjol dalam keterampilan berkomunikasi, dan ini merupakan salah satu kekuatan yang paling sering digunakan.  Ia memiliki kemampuan untuk memotivasi dan memberi semangat dengan kata-katanya, dan ia dikenal sebagai individu yang inspirasional. Ketika ia harus memusatkan perhatiannya pada tugas, Ia akan menjadi tidak akurat dan bahkan tidak terorganisir.  Tetapi ia akan memusatkan perhatian kepada yang harus ia senangkan, karena ia enggan sekali untuk menolak.  Ia menginginkan pengakuan sosial dan takut akan penolakan.  Ia mudah menemukan teman dan berusaha menciptakan suasana yang menyenangkan.  Ia membutuhkan seorang manajer atau supervisor untuk menentukan batas waktu yang jelas dalam pekerjaannya, ia lebih suka menggunakan gaya manajemen partisipatif yang dibangun berdasarkan hubungan yang kuat."},
+  {"pattern": "I-S", "title": "ADVISOR", "traits": ["Hangat", "Simpati", "Tenang dalam situasi sosial", "Pendengar yang baik", "Demonstratif", "Tidak memaksakan idenya pada orang lain", "Kurang tegas dalam memberi perintah", "Menerima kritik", "Toleran dan sabar", "Penjaga damai"], "professions": "Personnel, Welfare, Training, Hotelier, Promoting, Travel Agent, Lecturing, Upmarket/Speciality Sales, Soft/Service Selling, Beauty Therapist, Psychologist, Nursing, Human Resources, Retail-Specialist, Veterinarian, Social Work, Personal Assistant, Personnel-HR, Coach, Mentor.", "description": "Seorang yang mengesankan orang akan kehangatan, simpati dan pengertiannya.  Ia memiliki ketenangan dalam sebagian besar situasi sosial dan jarang tidak menyenangkan orang lain.  Faktanya, banyak orang datang padanya karena ia kelihatan sebagai pendengar yang baik.  Ia cenderung sangat demonstratif dan emosinya biasanya tampak jelas bagi orang di sekitarnya.  Ia tidak akan memaksakan idenya pada orang lain; ia tidak tegas dalam mengekspresikan atau memberi perintah.  Jika ia sangat kuat merasakan sesuatu, Ia akan bicara secara terbuka dan terus terang tentang pendiriannya.  Ia cenderung menerima kritik atas pekerjaannya sebagai serangan pribadi.  Ia dapat menjadi sangat toleran dan sabar kepada mereka yang tidak produktif di pekerjaan.  Ia merupakan \"penjaga damai\" dan akan bekerja untuk menjaga kedamaian dalam setiap keadaan."},
+  {"pattern": "I-C", "title": "ASSESSOR", "traits": ["Ramah", "Suka berteman", "Nyaman walapun dengan orang asing", "Mudah mengembangkan hubungan baru", "Dapat mengendalikan diri", "Sangat sosial", "Cenderung perfeksionis alamiah", "Mempromosikan tugas-tugas orang lain"], "professions": "Teaching, Training, Inventing, Specialist Selling (Engineering, Finance or any area involving capital equipment), Project Engineer, Finance, Service Engineer or Supervising within a Technical/Specialist Area, Public Relations, Environmentalist, Marketing, Conference Organiser, Estate Agent.", "description": "Merupakan seorang yang ramah dan suka berteman; ia merasa nyaman walaupun dengan orang asing. Ia dapat mengembangkan hubungan baru dengan mudah, dan pada umumnya dapat mengendalikan diri sampai pada tingkat dimana ia jarang menimbulkan rasa benci pada orang lain dengan sengaja. Ia seorang yang sangat sosial, menunjukkan kepedulian dan persahabatan ketika sedang melakukan tugas-tugas di tangannya. Ia cenderung perfeksionis secara alamiah, dan akan mengisolasi dirinya jika diperlukan untuk melaksanakan pekerjaan.  Ia berkeinginan mempromosikan tugas-tugas orang lain, juga kepunyaannya.  Kadang-kadang ia salah menilai kemampuan orang lain dikarenakan pandangan-pandangannya yang optimis."},
+  {"pattern": "I-C-D", "title": "ASSESSOR", "traits": ["Analitis", "Berwatak hati-hati", "Ramah pada saat merasa nyaman", "Sangat biasa dengan orang asing", "Mudah mengembangkan hubungan baru", "Dapat mengendalikan diri", "Peduli dan ramah", "Memusatkan perhatian pada penyelesaian tugas", "Perfeksionis secara alami", "Mengisolasi dirinya jika diperlukan", "Mudah diramalkan", "Berorientasi pada kualitas"], "professions": "Specialist/Technical Selling (Computer, Finance, Engineer and others, Technical/Capital Equipment Selling), Financial (Manager, Specialist), Engineering (Manager, Designer, Buyer, Draughtsman), Project Engineer, Sales Engineer, Consultant, Trainer, Lecturer, Hotelier, Travel Agent, Personnel and Marketing Services.", "description": "Merupakan seseorang yang analitis, berwatak hati-hati dan ramah pada saat merasa nyaman. Ia sangat biasa dengan orang asing, karena ia dapat menilai dan menyesuaikan diri dalam hubungan mereka. Ia dapat mengembangkan hubungan baru dengan mudah ketika ia ingin melakukannya, dan pada umumnya dapat mengendalikan diri sampai pada tingkat di mana ia jarang menimbulkan rasa benci pada orang lain dengan sengaja. Ia menampilkan sikap peduli dan ramah, namun mampu memusatkan perhatian pada penyelesaian tugas yang ada. Ia cenderung perfeksionis secara alami, dan akan mengisolasi dirinya jika diperlukan untuk melaksanakan pekerjaan. Ia suka berada pada situasi yang dapat diramalkan dan tidak ada kejutan. Ia sangat berorientasi pada kualitas dan akan bekerja dengan keras untuk menyelesaikan pekerjakan dengan benar. Ia ingin orang-orang berkenan akan pekerjaan yang sudah ia selesaikan dengan baik."},
+  {"pattern": "I-C-S", "title": "RESPONSIVE & THOUGHTFUL", "traits": ["High Energy", "Good Communication Skill", "To The Point", "Sensitif", "Banyak Bicara", "Need Recognation", "Need Socialism", "Anti thd Kritik", "Terlalu banyak bersosialisasi", "Leadership kurang", "Kurang Fokus", "Anti Deadline"], "professions": "Personnel, Welfare, Training, Attorney, Teaching, Accounting, Technical Instructor, Customer Services, Public Relations, Artist, Hotelier, Demonstrator, Engineering (Sales, Service, Project, Draughtsman, Designer), Specialist (Soft/Services), Selling, Purchasing, Supervising (Engineering, Production, Accounts), Administration Work, Secretarial, Industrial Relations Specialist.", "description": "Merupakan individu yang berorientasi pada orang dan lancar berkomunikasi serta loyal.  Ia cenderung sensitif dan mempunyai standard yang tinggi.  Keputusannya dibuat berdasarkan fakta dan data pendukung.  Ia sepertinya tidak bisa diam.  Ia perlu untuk lebih terus terang dan jangan terlalu subyektif.  Ia butuh pengakuan sosial dan perhatian pribadi; ia dapat cepat akrab dengan orang lain.  Ia bersahabat, antusias, informal, banyak bicara dan terlalu khawatir terhadap apa yang dipikirkan orang.  Ia menguasai banyak hal.  Ia ingin diterima sebagai anggota kelompok dan ingin mengetahui secara pasti apa yang diharapkan darinya sebelum ia memulai proyek baru."},
+  {"pattern": "S-D", "title": "SELF-MOTIVATED", "traits": ["Objektif & Analitis", "Mandiri", "Good planner", "Komitmen terhadap target", "Menghindari konflik", "Ingin terlibat dalam situasi", "Ingin memberikan bantuan dan dukungan", "Termotivasi oleh target pribadi", "Stabil", "Tekun"], "professions": "Investigator, Researcher, Accountant, Engineering, Production/Engineering Supervisor, Computer Specialist, Architect, Transport/Warehouse Supervisor, Credit Controller, DP Supervisor, Computer Specialist, Research and Development, Private Investigator, Quality Controller, Engineering (Designer, Draughtsman, Project Engineer), Sales and Service Engineer, Property Manager, Attorney, Administration Manager", "description": "Merupakan seorang yang obyektif dan analitis.  Ia ingin terlibat dalam situasi, dan juga ingin memberikan bantuan dan dukungan.  Secara internal termotivasi oleh target pribadi, Ia menyukai orang-orang, tetapi juga mempunyai kemampuan untuk berorientasi pada pekerjaannya pada saat dibutuhkan.  Karena determinasinya yang kuat, ia sering berhasil dalam berbagai hal; karakternya yang tenang, stabil dan daya tahannya memiliki kontribusi akan keberhasilannya.  Keuletannya setelah memulai pekerjaan, ia akan berusaha keras untuk mendapatkan sasarannya.  Seorang yang bebas, ia orang yang cermat dan memiliki tindak lanjut yang baik.  Ia bisa menjadi tidak ramah walaupun ia pada dasarnya ia yang berorientasi pada orang; dan pada situasi yang tidak membuatnya nyaman, ia lebih suka mendukung pemimpinnya dari pada keterlibatannya dengan situasi."},
+  {"pattern": "S-I", "title": "ADVISOR", "traits": ["Hangat", "Simpati dan Pengertian", "Tenang dalam situasi sosial", "Pendengar yang baik", "Demonstratif", "Tidak memaksakan idenya pada orang lain", "Kurang tegas dalam memberi perintah", "Menerima kritik", "Toleran dan sabar", "Penjaga damai"], "professions": "Personnel Welfare, Training, Hotelier, Promoting, Travel Agent, Lecturing, Child Care, Charitable Organizations, Soft or Service Selling, Psychologist, Therapist, Nurse, Personal Assistant, Hospitality Manager, Social Work, Student Services, Upmarket/Speciality Sales.", "description": "Seorang yang mengesankan orang akan kehangatan, simpati dan pengertiannya.  Ia memiliki ketenangan dalam sebagian besar situasi sosial dan jarang tidak menyenangkan orang lain.  Faktanya, banyak orang datang padanya karena ia kelihatan sebagai pendengar yang baik.  Ia cenderung sangat demonstratif dan emosinya biasanya tampak jelas bagi orang di sekitarnya.  Ia tidak akan memaksakan idenya pada orang lain; ia tidak tegas dalam mengekspresikan atau memberi perintah.  Jika ia sangat kuat merasakan sesuatu, Ia akan bicara secara terbuka dan terus terang tentang pendiriannya.  Ia cenderung menerima kritik atas pekerjaannya sebagai serangan pribadi.  Ia dapat menjadi sangat toleran dan sabar kepada mereka yang tidak produktif di pekerjaan.  Ia merupakan \"penjaga damai\" yang sebenarnya dan akan bekerja untuk menjaga kedamaian dalam setiap keadaan."},
+  {"pattern": "S-D-I", "title": "DIRECTOR", "traits": ["Seorang yang obyektif dan analitis", "Ingin terlibat dalam situasi", "Ingin memberikan bantuan dan dukungan", "Termotivasi oleh target pribadi", "Berorientasi terhadap pekerjaannya", "Menyukai hubungan dengan sesama", "Mempunyai determinasi yang kuat", "Karakternya tenang", "Stabil dan daya tahannya tinggi", "Ulet dalam memulai pekerjaan", "Berusaha keras mencapai sasarannya", "Mandiri dan cermat"], "professions": "Engineering and Production (Supervision), Service Selling, Distribution and Warehouse Supervision/Manager, Office Management, Customer Service, System Analyst, Radio Announcer, Technical Writing, Telemarketing, TV Presenter, Project Engineer, Film Producer, Programmer, Sales/Service Engineer, Accounting, Draughtsman, Project Engineer.", "description": "Seorang yang obyektif dan analitis.  Ia ingin terlibat dalam situasi, dan ia juga ingin memberikan bantuan dan dukungan kepada orang yang ia hormati.  Secara internal termotivasi oleh target pribadi, ia berorientasi terhadap pekerjaannya tapi juga menyukai hubungan dengan sesama.  Karena determinasinya yang kuat, ia sering berhasil dalam berbagai hal; karakternya yang tenang, stabil dan daya tahannya yang tinggi memiliki kontribusi dalam keberhasilannya.  Ulet dalam memulai pekerjaan. Ia akan berusaha keras untuk mencapai sasarannya.  Seorang yang mandiri dan cermat serta memiliki tindak lanjut yang baik."},
+  {"pattern": "S-I-D", "title": "ADVISOR", "traits": ["Hangat", "Simpati dan Pengertian", "Tenang dalam situasi sosial", "Pendengar yang baik", "Demonstratif", "Tidak memaksakan idenya pada orang lain", "Kurang tegas dalam memberi perintah", "Menerima kritik", "Toleran dan sabar", "Penjaga damai"], "professions": "Engineering and Production (Supervision), Service Selling, Distribution and Warehouse Supervision, Office Management, Customer Service, System Analyst, Programmer, Sales/Service Engineer, Accounting, Draughtsman, Project Engineer.", "description": "Seorang yang mengesankan orang akan kehangatan, simpati dan pengertiannya.  Ia memiliki ketenangan dalam sebagian besar situasi sosial dan jarang tidak menyenangkan orang lain.  Faktanya, banyak orang datang padanya karena ia kelihatan sebagai pendengar yang baik.  Ia cenderung sangat demonstratif dan emosinya biasanya tampak jelas bagi orang di sekitarnya.  Ia tidak akan memaksakan idenya pada orang lain; ia tidak tegas dalam mengekspresikan atau memberi perintah.  Jika ia sangat kuat merasakan sesuatu, Ia akan bicara secara terbuka dan terus terang tentang pendiriannya.  Ia cenderung menerima kritik atas pekerjaannya sebagai serangan pribadi.  Ia dapat menjadi sangat toleran dan sabar kepada mereka yang tidak produktif di pekerjaan.  Ia merupakan \"penjaga damai\" yang sebenarnya dan akan bekerja untuk menjaga kedamaian dalam setiap keadaan."},
+  {"pattern": "S-I-C", "title": "ADVOCATE", "traits": ["Stabil", "Ramah", "Detail ketika situasi membutuhkan", "Cenderung individualis", "Teguh pendirian", "Menyukai hubungan dengan orang", "Mendukung pihak yang lemah", "Ingin diterima sebagai anggota tim", "Ingin orang lain menyukainya", "Sulit membuat keputusan", "Moderat", "Cermat dan dapat diandalkan"], "professions": "Personnel Welfare, Training, Teaching, Attorney, Accounting, Technical Instructor, Customer Service, Public Relations, Artist, Hotelier, Demonstrator, Engineer (Sales, Service, Project, Draughtsman, Designer), Specialist (Soft/Service), Selling, Purchasing, Supervising (Engineering, Production, Accounts) Administrative Work, Secretarial.", "description": "Merupakan orang yang stabil, individu yang ramah yang berusaha keras membangun hubungan yang positif di tempat kerja dan di rumah.  Ia dapat menjadi sangat berorientasi detil ketika situasi membutuhkan; tetapi secara keseluruhan ia cenderung individualis, independen dan sedikit perhatian terhadap detil.  Sekali dia membuat keputusan, sangat sulit mengubah pendiriannya.  Ia menyukai hubungan dengan orang dan cenderung mendukung pihak yang lemah.  Ia akan mengambil posisi berlawanan dengan ketidaksepakatan dan merasa frustrasi jika sesuatu tidak sejalan dengannya.  Ia ingin diterima sebagai anggota tim, dan ia menginginkan orang lain menyukainya.  Ia cukup sulit membuat keputusan sampai parameter wewenang secara jelas ditentukan, dan ia mungkin cenderung tidak sungguh-sungguh jika dipaksa membuat keputusan ketika ia tidak ingin melakukannya.  Ia menginginkan orang lain yang membuat keputusan, khususnya jika ada orang yang sangat ia hargai dan hormati.  Ia cenderung moderat, cermat dan dapat diandalkan."},
+  {"pattern": "S-C-D", "title": "INQUIRER", "traits": ["Seorang yang baik", "Sangat berorientasi pada detil", "Sangat teliti dalam penyelesaian tugas", "Sangat berhati-hati", "Penuh pertimbangan", "Lambat adaptasi", "Kaku dan keras kepala"], "professions": "Directing, Managing or Supervising (in Engineering, Accountancy, Research and Development and Computing disciplines), Accountant, Project Engineer, Draughtsman, Designer, Analyst, Chemist, Technician, Service Engineer, Manager, Security Specialist.", "description": "Seorang yang baik secara alamiah dan sangat berorientasi detil.  Ia peduli dengan orang-orang di sekitarnya dan mempunyai kualitas yang membuatnya sangat teliti dalam penyelesaian tugas.  Ia mempertimbangkan sekelilingnya dengan hati-hati sebelum membuat keputusan untuk melihat pengaruhnya pada mereka; saat tertentu ia terlalu hati-hati.  Jika ia merasa seseorang memanfaatkan situasi, ia akan memperlambat kerjanya sehingga dapat mengamati apa yang sedang berlangsung di sekitarnya."},
+  {"pattern": "S-C-I", "title": "ADVOCATE", "traits": ["Stabil", "Ramah", "Detail ketika situasi membutuhkan", "Cenderung individualis", "Teguh pendirian", "Menyukai hubungan dengan orang", "Mendukung pihak yang lemah", "Ingin diterima sebagai anggota tim", "Ingin orang lain menyukainya", "Sulit membuat keputusan", "Moderat", "Cermat dan dapat diandalkan"], "professions": "Personnel Welfare, Administrator, Advisers, Training, Teaching, Attorney, Accounting, Counseling, Technical Instructor, Customer Service, Accounting-General, Public Relations, Accounts Supervisor, Artist, Hotelier, Demonstrator, Engineer (Sales, Service, Project, Draughtsman, Designer), Specialist (Soft/Service), Selling, Purchasing, Sales Engineer, Legal, Negotiator, Student Service, Photographer, Physiotherapist, Project Engineer, Vocational Education, Supervising (Engineering, Production, Accounts) Administrative Work, Demonstrator, Secretarial, Hospitality Manager.", "description": "Merupakan orang yang stabil, individu yang ramah yang berusaha keras membangun hubungan yang positif di tempat kerja dan di rumah.  Ia dapat menjadi sangat berorientasi detil ketika situasi membutuhkan; tetapi secara keseluruhan ia cenderung individualis, independen dan sedikit perhatian terhadap detil.  Sekali dia membuat keputusan, sangat sulit mengubah pendiriannya.  Ia menyukai hubungan dengan orang dan cenderung mendukung pihak yang lemah.  Ia akan mengambil posisi berlawanan dengan ketidaksepakatan dan merasa frustrasi jika sesuatu tidak sejalan dengannya.  Ia ingin diterima sebagai anggota tim, dan ia menginginkan orang lain menyukainya.  Ia cukup sulit membuat keputusan sampai parameter wewenang secara jelas ditentukan, dan ia mungkin cenderung tidak sungguh-sungguh jika dipaksa membuat keputusan ketika ia tidak ingin melakukannya.  Ia menginginkan orang lain yang membuat keputusan, khususnya jika ada orang yang sangat ia hargai dan hormati.  Ia cenderung moderat, cermat dan dapat diandalkan."},
+  {"pattern": "C-I", "title": "ASSESSOR", "traits": ["Analitis", "Berwatak hati-hati", "Ramah pada saat merasa nyaman", "Sangat biasa dengan orang asing", "Mudah mengembangkan hubungan baru", "Dapat mengendalikan diri", "Peduli dan ramah", "Memusatkan perhatian pada penyelesaian tugas", "Perfeksionis secara alami", "Mengisolasi dirinya jika diperlukan", "Mudah diramalkan", "Berorientasi pada kualitas"], "professions": "Sales (Technical/Specialist), Public Relations, Lecturer, Academic, Personnel Administration, Purchasing, Travel Agent, Training, Teaching, Real Estate Agent, Hospitality Administration, Sales-Technical, Hotelier, Project Engineer, Service Engineer.", "description": "Merupakan seseorang yang analitis, berwatak hati-hati dan ramah pada saat merasa nyaman. Ia sangat biasa dengan orang asing, karena ia dapat menilai dan menyesuaikan diri dalam hubungan mereka. Ia dapat mengembangkan hubungan baru dengan mudah ketika ia ingin melakukannya, dan pada umumnya dapat mengendalikan diri sampai pada tingkat di mana ia jarang menimbulkan rasa benci pada orang lain dengan sengaja. Ia menampilkan sikap peduli dan ramah, namun mampu memusatkan perhatian pada penyelesaian tugas yang ada. Ia cenderung perfeksionis secara alami, dan akan mengisolasi dirinya jika diperlukan untuk melaksanakan pekerjaan. Ia suka berada pada situasi yang dapat diramalkan dan tidak ada kejutan. Ia sangat berorientasi pada kualitas dan akan bekerja dengan keras untuk menyelesaikan pekerjakan dengan benar. Ia ingin orang-orang berkenan akan pekerjaan yang sudah ia selesaikan dengan baik."},
+  {"pattern": "C-D-I", "title": "CHALLENGER", "traits": ["Sangat berorientasi pada tugas", "Sensitif terhadap permasalahan", "Lebih mempedulikan tugas daripada orang", "Kukuh/keras", "Dingin", "Tidak berperasaan", "Menjaga jarak", "Membuat keputusan berdasarkan fakta", "Pendiam", "Tidak mudah percaya"], "professions": "Directing, Managing or Supervising (Engineering, Research, Finance, Planning), Designer, Work Study, Sales (Technical/ Specialist), Logistic Support, Systems Analyst, Lecturer, Company Secretary, Negotiator and Purchasing.", "description": "Seorang yang sangat berorientasi pada tugas dan sensitif pada permasalahan. Ia lebih mempedulikan tugas yang ada dibanding orang-orang di sekitarnya, termasuk perasaan mereka. Ia sangat kukuh/keras dan mempunyai pendekatan yang efektif dalam pemecahan masalah. Oleh karena sifat alamiah dan keinginannya akan hasil yang terukur, ia akan tampak dingin, tidak berperasaan dan menjaga jarak. Ia membuat keputusan berdasar pada fakta, bukan emosi. ia cenderung pendiam dan tidak mudah percaya."},
+  {"pattern": "C-D-S", "title": "CONTEMPLATOR", "traits": ["Berorientasi pada hal-hal detil", "Mempunyai standar tinggi untuk dirinya", "Logis dan analitis", "Ingin berbuat yang terbaik", "Selalu berpikir ada ruang untuk kemajuan", "Kompetitif", "Ingin menghasilkan mutu yang terbaik", "Mampu mencapai sasarannya", "Sangat memusatkan perhatian pada tugas", "Mantap dan dapat diandalkan"], "professions": "Engineering, Research, Production and Finance (Director, Manager atau Supervisor), Work Study, Accountant, Administrator, Quality Controller, Safety Officer, Market Analyst, Planner and Personnel (Director, Manager, Administrator), MIS Manager, Security Manager, Loss Control.", "description": "Berorientasi pada hal detil dan mempunyai standard tinggi untuk dirinya. Ia logis dan analitis. Ia ingin berbuat yang terbaik, dan ia selalu berpikir ada ruang untuk peningkatan/kemajuan. Ia cenderung kompetitif dan ingin menghasilkan pekerjaan dengan mutu yang terbaik. Ia sebenarnya sensitif terhadap orang-orang, tetapi karena sifat logisnya, orientasinya terhadap tugas dapat menutupinya dengan mudah. Ia suka dihargai untuk pekerjaannya yang berkualitas. Ia mampu mengerjakan tugas-tugas; dan mencapai sasarannya. Ia sangat memusatkan perhatian pada tugas yang ada, mantap dan dapat diandalkan."},
+  {"pattern": "C-I-D", "title": "ASSESSOR", "traits": ["Analitis", "Berwatak hati-hati", "Ramah pada saat merasa nyaman", "Sangat biasa dengan orang asing", "Mudah mengembangkan hubungan baru", "Dapat mengendalikan diri", "Peduli dan ramah", "Memusatkan perhatian pada penyelesaian tugas", "Perfeksionis secara alami", "Mengisolasi dirinya jika diperlukan", "Mudah diramalkan", "Berorientasi pada kualitas"], "professions": "Directing, Managing or Supervising (Engineering, Research, Finance, Planning), Designer, Work Study, Sales (Technical/Specialist), Lecturer, Company Secretary, Negotiator and Purchasing.", "description": "Merupakan seseorang yang analitis, berwatak hati-hati dan ramah pada saat merasa nyaman. Ia sangat biasa dengan orang asing, karena ia dapat menilai dan menyesuaikan diri dalam hubungan mereka. Ia dapat mengembangkan hubungan baru dengan mudah ketika ia ingin melakukannya, dan pada umumnya dapat mengendalikan diri sampai pada tingkat di mana ia jarang menimbulkan rasa benci pada orang lain dengan sengaja. Ia menampilkan sikap peduli dan ramah, namun mampu memusatkan perhatian pada penyelesaian tugas yang ada. Ia cenderung perfeksionis secara alami, dan akan mengisolasi dirinya jika diperlukan untuk melaksanakan pekerjaan. Ia suka berada pada situasi yang dapat diramalkan dan tidak ada kejutan. Ia sangat berorientasi pada kualitas dan akan bekerja dengan keras untuk menyelesaikan pekerjakan dengan benar. Ia ingin orang-orang berkenan akan pekerjaan yang sudah ia selesaikan dengan baik."},
+  {"pattern": "C-S-D", "title": "PRECISIONIST", "traits": ["Sistematis dan Prosedural", "Teratur & memiliki perencanaan yang baik", "Teliti", "Fokus pada detil", "Bijaksana", "Diplomatis", "Jarang menentang rekan kerjanya", "Ia sangat berhati-hati", "Mengharapkan akurasi dan standard tinggi", "Menginginkan adanya petunjuk standard", "Tidak menginginkan perubahan mendadak"], "professions": "Engineering, Research Director, Production and Finance (Director, Manager, Supervisor), Work Study, Accountant, Administrator, Quality Controller, Financial Services Manager, Safety Officer, Market Analyst, Planner and Personnel (Director, Manager, Administrator), MIS Manager, Electrician, Security Manager, Financial Researcher, Planner, Printer, Production Controller, Production Manager, Personnel Management, Loss Control.", "description": "Berpikir sistematis dan cenderung mengikuti prosedur dalam kehidupan pribadi dan pekerjaannya.  Teratur dan memiliki perencanaan yang baik, ia teliti dan fokus pada detil.  Ia bertindak dengan penuh kebijaksanaan, diplomatis dan jarang menentang rekan kerjanya dengan sengaja.  Ia sangat berhati-hati, ia sungguh-sungguh mengharapkan akurasi dan standard tinggi dalam pekerjaannya.  Ia cenderung terjebak dalam hal detil, khususnya jika harus memutuskan.  ia menginginkan adanya petunjuk standard pelaksanaan kerja dan tanpa perubahan mendadak."}
+];
+
+var DETAIL = {
+  "D": {
+    "potret": ["1.  Bersaing", "2.  Cepat bertindak", "3.  Berani mengambil resiko", "4.  Menuntut sesuatu", "5.  Memerintah", "6.  Pemrotes", "7.  Rasional", "8.  Berorientasi pada tugas", "9.  Formal ", "10.Bergaya bisnis", "11.Mandiri / tertutup", "12.Disiplin"],
+    "judul": "Tipe kepribadian Dominance",
+    "deskripsi": "Anda memiliki tingkat ketegasan yang tinggi dan tingkat pengendalian yang tinggi (controlled). Ketegasan yang tinggi membuat anda memiliki kepribadian D (Dominance) manjadi kurang sabar melihat hasil, dengan kata lain ingin cepat memperoleh hasil, dan hal ini menimbulkan perasaan akan kepentingan (sense of urgency) terhadap tugas yang membuat anda mejdai langsung (to the point)dan efisien (direct and efficient). Pengendalian diri anda yang kuat membuat anda menjadi bersikap individual, kurang terbuka kepada orang lain, namun hal ini menimbulkan motivasi diri yang kuat (self-motivated) dan lebih suka bekerja secara bebas (independent). Melihat sikap anda seperti ini, orang lain akan cenderung memandang anda sebagai seseorang yang tertutup, menuntut, suka bersaing dan ambisius. Anda memiliki type kepribadian D (Dominance) akan lebih cocok untuk bekerja dalam suatu lingkungan yang memberikan kebebasan dan personal power, dimana hal ini akan membuat anda mampu menghadapi tantangan yang akan menimbulkan kreatifitas dan energi yang positif bagi kemajuan diri anda sebagai seorang profesional. Tipe D (Dominance) dapat diklarifikasikan sebagai : Developer Pattern, Result Oriented Pattern, Inspiration Pattern, and Creative Pattern",
+    "kecenderungan": ["• Keinginan memperoleh hasil secara lansung ( cepat )", "• Cepat mengambil tindakan", "• Menerima atau menyukai tantangan, hal – hal baru", "• Cepat membuat keputusan", "• Tidak atau kurang menyukai ”status quo”", "• Memiliki tanggung jawab dan mengambil wewenang (taking authority)", "• Managing trouble adn solving problems"],
+    "pengembangan": ["• Mempertimbangkan setuju dan tidak setuju", "• Memperhitungkan resiko", "• Menggunakan prinsip kehati – hatian", "• Menciptakan lingkungan yang dapat diprediksi", "• Mempelajari fakta – fakta", "• Berhati – hati sebelum memutuskan", "• Mengakui dan menghargai kebutuhan orang lain", "• Menerima tugas – tugas atau pekerjaan yan sulit", "• Memahami bahwa anda membutuhkan bantuan orang lain ( kerja sama )", "• Mendasarkan teknik – teknik pada pengalaman praktis", "• Kadang – kadang menerima goncangan / kejutan ( shock therapy )", "• Bekerja sama dalam kelompok", "• Menyatakan / mengungkapkan alasan – alasan dalam pengambilan keputusan / kesimpulan", "• Menyadari akan kesepakatan atau persetujuan yang ada", "• Membutuhkan lebih banyak relaksasi diri ( rileks dan menikmati kehidupan )"]
+  },
+  "I": {
+    "potret": ["1.  Kooperatif", "2.  Lambat bertindak", "3.  Menghindari resiko", "4.  Menerima", "5.  Tidak memerintah", "6.  Pendiam", "7.  Rasional", "8.  Berorientasi pada tugas", "9.  Formal ", "10.Bergaya bisnis", "11.Mandiri / tertutup", "12.Disiplin"],
+    "judul": "Tipe kepribadian Influence",
+    "deskripsi": "anda memiliki tingkat ketegasan yang tinggi dan tingkat keterbukaan yang tinggi. Tingkat keterbukaan yang tinggi membuat anda memiliki kepribadia I (Influence) menjadi lebih sosial, bersahabat, dapat menerima pendapat orang lain dan suka berkelompok. Sedangkan ketegasan yang tinggi membuat anda menjadi antusias dalam melaksanakan tugas – tugas. Namun dalam kenyataan anda lebih mementingkan hubungan positif dengan orang lain dibandingkan penyelesaian tugas – tugas. Tipe I (Influence) dapat diklarifikasikan sebagai : Promoter Pattern, Persuader Pattern, Counselor Pattern, and Appraiser Pattern.",
+    "kecenderungan": ["• Menghubungi orang lain", "• Membuat kesan yang menarik dan menyakinkan", "• Pandai berbicara dan mengemukakan pendapat", "• Menciptakan lingkungan yang bergairah", "• Membangkitkan antusiasme ( semangat )", "• Menghibur dan menjamu orang lain", "• Memandang orang dan situasi dengan optimisme", "• Berpartisipasi dalam kelompok"],
+    "pengembangan": ["• Berkonsentrasi pada tugas (bekerja sama dengan orang – orang yang lebih suka berhubungan dengan tugas daripada orang lain )", "• Memperhitungkan resiko", "• Menggunakan prinsip kehati – hatian", "• Menciptakan lingkungan yang dapat diprediksi", "• Mempelajari fakta – fakta", "• Berhati – hati sebelum memutuskan", "• Mengakui dan menghargai kebutuhan orang lain", "• Menerima tugas – tugas atau pekerjaan yan sulit", "• Memahami bahwa anda membutuhkan bantuan orang lain ( kerja sama )", "• Mendasarkan teknik – teknik pada pengalaman praktis", "• Kadang – kadang menerima goncangan / kejutan ( shock therapy )", "• Bekerja sama dalam kelompok", "• Menyatakan / mengungkapkan alasan – alasan dalam pengambilan keputusan / kesimpulan", "• Menyadari akan kesepakatan atau persetujuan yang ada", "• Membutuhkan lebih banyak relaksasi diri ( rileks dan menikmati kehidupan )"]
+  },
+  "S": {
+    "potret": ["1.  Kooperatif", "2.  Lambat bertindak", "3.  Menghindari resiko", "4.  Menerima", "5.  Tidak memerintah", "6.  Pendiam", "7.  Mengandalkan Perasaan", "8.  Berorientasi hubungan sesama", "9.  Formal ", "10.Bergaya akrab", "11.Terbuka", "12.Tidak Disiplin"],
+    "judul": "Tipe kepribadian Steadiness",
+    "deskripsi": "Anda memiliki tingkat penerimaan yang tinggi dan tingkat keterbukaan yang tinggi. Orang – orang yang memiliki tingkat penerimaan tinggi tidak menunjukan tingkat energi yang cukup untuk bersikap tegas, sehingga anda tampak kurang tegas, lebih sabar, mendatar, tidak menuntut dan tenang. Orang tipe S (Steadiness) tidak menyukai perubahan atau ketidakpastian, sehingga mereka merencanakan tindakan secara berhati – hati dan mendalam serta cenderung bekerja secara gigih dan terus menerus pada tugas – tugas yang telah ditetapkan oleh mereka. Meskipun orang – orang tipe S (Steadiness) tampak kurang percaya diri, namun mereka memiliki tingkat keterbukaan yang tinggi untuk menerima orang lain yang cenderung ditunjukan dalam keramah – tamahan dan kemurahan hati. Tipe S (Steadiness) dapat diklarifikasikan sebagai : Specialist Pattern, Achiever Pattern, Agent Pattern,Investigator Pattern.",
+    "kecenderungan": ["• Melaksanakan tugas secara konsisten terhadap hal – hal yang dapat diprediksi", "• Menunjukan kesabaran", "• Mengembangkan ketrampilan khusus", "• Senang membantu orang lain", "• Menunjukan loyalitas", "• Menjadi pendengar yang baik", "• Menangani orang secara menyenangkan", "• Menciptakan lingkungan kerja yang stabil dan harmonis"],
+    "pengembangan": ["• Berkonsentrasi pada tugas (bekerja sama dengan orang – orang yang lebih suka berhubungan dengan tugas daripada orang lain )", "• Memperhitungkan resiko", "• Menggunakan prinsip kehati – hatian", "• Menciptakan lingkungan yang dapat diprediksi", "• Mempelajari fakta – fakta", "• Berhati – hati sebelum memutuskan", "• Mengakui dan menghargai kebutuhan orang lain", "• Menerima tugas – tugas atau pekerjaan yan sulit", "• Memahami bahwa anda membutuhkan bantuan orang lain ( kerja sama )", "• Mendasarkan teknik – teknik pada pengalaman praktis", "• Kadang – kadang menerima goncangan / kejutan ( shock therapy )", "• Bekerja sama dalam kelompok", "• Menyatakan / mengungkapkan alasan – alasan dalam pengambilan keputusan / kesimpulan", "• Menyadari akan kesepakatan atau persetujuan yang ada", "• Membutuhkan lebih banyak relaksasi diri ( rileks dan menikmati kehidupan )"]
+  },
+  "C": {
+    "potret": ["1.  Kooperatif", "2.  Lambat bertindak", "3.  Menghindari resiko", "4.  Menerima", "5.  Tidak memerintah", "6.  Pendiam", "7.  Rasional", "8.  Berorientasi pada tugas", "9.  Formal ", "10.Bergaya bisnis", "11.Mandiri/tertutup", "12.Disiplin"],
+    "judul": "Tipe kepribadian Compliance",
+    "deskripsi": "Anda memiliki tingkat peneriamaan yang tinggi dan tingkat pengendalian yang tinggi (controlled). Orang – orang yang memiliki tingkat penerimaan tinggi tidak menunjukan tingkat energi yang cukup untuk bersikap tegas, sehingga anda tampak kurang tegas dan bersikap reaktif. Namun tingkat pengendalian yang tinggi membuat anda bersikap individual, kurang terbuka kepada orang lain, namun hal ini menimbulkan motivasi diri yang kuat (self-motivated) dan lebih suka bekerja secara bebas( independent). Orang – orang tipe C (Compliance) cenderung melihat kehidupan dalam bentuk struktur dan peraturan – peraturan dan berusaha untuk mencapai keakuratan dan ketelitian setinggi mungkin. Berdasarkan hal ini maka mereka menjadi lebih berhati – hati dan menjadi sangat sensitif terhadap perubahan dan hal – hal baru. Tipe C (Compliance) dapat diklarifikasikan sebagai : Objective thinker Pattern, Perfectionist Pattern, and Practitioner Pattern.",
+    "kecenderungan": ["• Mengikuti standar – standar dan petunjuk – petunjuk", "• Berkonsentrasi pada hal – hal terperinci", "• Berpikir analitikal", "• Menjadi kaku atau formal ketika berhubungan dengan orang lain", "• Memeriksa keakuratan dan menganalisis kinerja secara kritis", "• Menggunakan pendekatan sistematik terhadap situasi atau aktivitas – aktivitas"],
+    "pengembangan": ["• Mendelegasikan tugas – tugas penting", "• Cepat membuat keputusan", "• Menggunakan kebijakan – kebijakan hanya sebagai petunjuk pelaksanaan tugas", "• Berkompromi dengan orang lain", "• Memulai dan memfasilitasi diskusi", "• Mendukung kerjasama", "• Membuat perencanaan secara hati – hati", "• Mengetahui deskripsi pekerjaan secara tepat", "• Menjadwalkan penilaian kinerja", "• Menerima umpan balik kinerja secara spesifik", "• Menghargai prestasi orang lain secara pribadi", "• Mengembangkan toleransi untuk menghadapi konflik"]
+  }
+};
+
+// ---------------------------------------------------------------------------
+// MENU SPREADSHEET
+// ---------------------------------------------------------------------------
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('DISC')
+    .addItem('Proses Semua Kandidat Baru', 'processNewCandidate')
+    .addItem('Proses Baris Terpilih', 'processSelectedRow')
+    .addToUi();
+}
+
+// ============================================================================
+// UPDATE: Proses SEMUA kandidat yang belum pernah diproses (Status PDF != 'Sudah')
+// ============================================================================
+function processNewCandidate() {
+  var sheet = getResponseSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    notify_('Belum ada jawaban responden.');
+    return;
+  }
+
+  var lastColumn = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  
+  // Pastikan kolom "Status PDF" ada
+  var statusColIdx = headers.indexOf('Status PDF');
+  if (statusColIdx === -1) {
+    statusColIdx = headers.length;
+    sheet.getRange(1, statusColIdx + 1).setValue('Status PDF');
+    headers.push('Status PDF');
+  }
+
+  // Ambil semua nilai di kolom Status PDF untuk dicek
+  var statusValues = sheet.getRange(2, statusColIdx + 1, lastRow - 1, 1).getValues();
+  
+  var processedCount = 0;
+  var errorCount = 0;
+  var lastProcessedName = '';
+
+  for (var r = 0; r < statusValues.length; r++) {
+    var row = r + 2; // Baris data dimulai dari baris ke-2
+    var statusValue = String(statusValues[r][0] || '').trim().toLowerCase();
+    
+    // Hanya proses jika statusnya belum 'sudah'
+    if (statusValue !== 'sudah') {
+      try {
+        var result = processRow_(sheet, row);
+        if (result) {
+          processedCount++;
+          // Ambil nama untuk laporan notifikasi
+          var values = sheet.getRange(row, 1, 1, lastColumn).getValues()[0];
+          var nama = cariKolomAny_(headers, values, ['nama lengkap', 'nama'], null);
+          lastProcessedName = nama ? String(nama).trim() : 'Tanpa Nama';
+        }
+      } catch (e) {
+        errorCount++;
+        Logger.log('Error pada baris ' + row + ': ' + e.toString());
+      }
+    }
+  }
+
+  // Notifikasi hasil akhir batch processing
+  if (processedCount === 0 && errorCount === 0) {
+    notify_('Semua kandidat sudah diproses. Tidak ada kandidat baru.');
+  } else {
+    var msg = 'Proses batch selesai.\nBerhasil diproses: ' + processedCount + ' kandidat.';
+    if (errorCount > 0) {
+      msg += '\nGagal: ' + errorCount + ' kandidat (periksa Log eksekusi).';
+    }
+    if (processedCount > 0) {
+      msg += '\nTerakhir diproses: ' + lastProcessedName;
+    }
+    notify_(msg);
+  }
+}
+
+function processSelectedRow() {
+  var sheet = getResponseSheet_();
+  var range = sheet.getActiveRange();
+  if (!range) {
+    notify_('Pilih salah satu baris responden terlebih dahulu.');
+    return;
+  }
+  var row = range.getRow();
+  if (row < 2) {
+    notify_('Pilih baris responden (bukan header).');
+    return;
+  }
+  return processRow_(sheet, row);
+}
+
+function getResponseSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName('Responden') || ss.getSheets()[0];
+}
+
+function notify_(msg) {
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {
+    Logger.log(msg);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// INTI: baca 1 baris jawaban -> hitung -> PDF
+// ---------------------------------------------------------------------------
+
+function processRow_(sheet, row) {
+  var lastColumn = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  var values = sheet.getRange(row, 1, 1, lastColumn).getValues()[0];
+
+  // ------------------------------------------------------------------------
+  // Anti double PDF: gunakan kolom "Status PDF"
+  // ------------------------------------------------------------------------
+  var statusColIdx = headers.indexOf('Status PDF');
+  if (statusColIdx === -1) {
+    statusColIdx = headers.length;
+    sheet.getRange(1, statusColIdx + 1).setValue('Status PDF');
+    headers.push('Status PDF');
+    values.push('');
+  }
+
+  var statusValue = String(values[statusColIdx] || '').trim().toLowerCase();
+  if (statusValue === 'sudah') {
+    notify_('Baris ini sudah pernah diproses sebelumnya.\nJika ingin diproses ulang, hapus isi kolom "Status PDF" pada baris tersebut.');
+    return null;
+  }
+
+  // ------------------------------------------------------------------------
+  // Ambil data diri dengan fuzzy matching
+  // ------------------------------------------------------------------------
+  var nama = cariKolomAny_(headers, values, ['nama lengkap', 'nama'], null);
+  var usia = cariKolomAny_(headers, values, ['usia', 'umur'], null);
+  var gender = cariKolomAny_(headers, values, ['kelamin', 'gender', 'jenis'], null);
+
+  if (nama === null || String(nama).trim() === '') throw new Error('Kolom Nama tidak ditemukan atau kosong.');
+  if (usia === null || String(usia).trim() === '') throw new Error('Kolom Usia tidak ditemukan atau kosong.');
+  if (gender === null || String(gender).trim() === '') throw new Error('Kolom Jenis Kelamin tidak ditemukan atau kosong.');
+
+  nama = String(nama).trim();
+  usia = String(usia).trim();
+  gender = String(gender).trim();
+
+  var tglRaw = values[0] instanceof Date ? values[0] : cariKolomAny_(headers, values, ['timestamp', 'tanggal', 'tgl', 'waktu'], null);
+  var tgl = tglRaw instanceof Date
+    ? Utilities.formatDate(tglRaw, Session.getScriptTimeZone(), 'dd MMMM yyyy')
+    : String(tglRaw || '');
+
+  // ------------------------------------------------------------------------
+  // Ambil jawaban soal 1-24 dengan fuzzy matching
+  // ------------------------------------------------------------------------
+  var posP = [];
+  var posK = [];
+
+  for (var q = 1; q <= 24; q++) {
+    var ansP = String(ambilSoal_(headers, values, q, false) || '').trim();
+    var ansK = String(ambilSoal_(headers, values, q, true) || '').trim();
+
+    if (!ansP || !ansK) {
+      throw new Error('Kolom jawaban soal ' + q + ' tidak ditemukan. Pastikan judul form mengandung nomor ' + q + ', kata PALING, dan TIDAK untuk pertanyaan kedua.');
+    }
+
+    var idxP = indexOfJawaban_(QUESTIONS[q - 1], ansP);
+    var idxK = indexOfJawaban_(QUESTIONS[q - 1], ansK);
+
+    if (idxP === -1 || idxK === -1) {
+      throw new Error('Jawaban soal ' + q + ' tidak dikenali. Periksa kesesuaian teks pilihan pada Form dengan data master.\nPALING: ' + ansP + '\nTIDAK: ' + ansK);
+    }
+
+    if (idxP === idxK) {
+      throw new Error('Soal ' + q + ': jawaban PALING dan PALING TIDAK sama (' + ansP + '). Data tidak valid.');
+    }
+
+    posP.push(idxP + 1);
+    posK.push(idxK + 1);
+  }
+
+  // ------------------------------------------------------------------------
+  // Hitung DISC
+  // ------------------------------------------------------------------------
+  var hasil = hitungDISC_(posP, posK);
+  hasil.identitas = {
+    nama: nama,
+    usia: usia,
+    gender: gender,
+    tanggal: tgl
+  };
+
+  // Simpan ringkasan ke sheet "Hasil"
+  tulisHasil_(hasil);
+
+  // ------------------------------------------------------------------------
+  // Buat PDF
+  // ------------------------------------------------------------------------
+  var html = buildReportHtml_(hasil);
+  var safeNama = nama.replace(/[\\/:*?"<>|]/g, '');
+  var pdfName = 'DISC Result - ' + safeNama + '.pdf';
+
+  var pdfBlob = Utilities.newBlob(html, 'text/html', 'report.html')
+    .getAs('application/pdf')
+    .setName(pdfName);
+
+  var folder = getOrCreateFolder_('Hasil DISC');
+
+  // Hapus PDF lama dengan nama sama agar tidak menumpuk
+  var old = folder.getFilesByName(pdfName);
+  while (old.hasNext()) old.next().setTrashed(true);
+
+  var file = folder.createFile(pdfBlob);
+
+  // Tandai sudah diproses
+  sheet.getRange(row, statusColIdx + 1).setValue('Sudah');
+
+  notify_(
+    'PDF berhasil dibuat untuk: ' + nama + '\n' +
+    'Pola (MOST / LEAST / CHANGE): ' + hasil.pola[0].nama + ' / ' + hasil.pola[1].nama + ' / ' + hasil.pola[2].nama + '\n' +
+    'File: ' + file.getUrl()
+  );
+
+  return file.getUrl();
+}
+
+// ---------------------------------------------------------------------------
+// FUNGSI PENCARIAN HEADER FUZZY
+// ---------------------------------------------------------------------------
+
+function cariKolom_(headers, values, keywords, mustNotContain) {
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i] || '').toLowerCase();
+    if (!h) continue;
+
+    var match = true;
+
+    if (keywords) {
+      for (var k = 0; k < keywords.length; k++) {
+        if (h.indexOf(String(keywords[k]).toLowerCase()) === -1) {
+          match = false;
+          break;
+        }
+      }
+    }
+
+    if (match && mustNotContain) {
+      for (var m = 0; m < mustNotContain.length; m++) {
+        if (h.indexOf(String(mustNotContain[m]).toLowerCase()) !== -1) {
+          match = false;
+          break;
+        }
+      }
+    }
+
+    if (match) return values[i];
+  }
+  return null;
+}
+
+function cariKolomAny_(headers, values, keywords, mustNotContain) {
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i] || '').toLowerCase();
+    if (!h) continue;
+
+    var match = false;
+
+    if (keywords) {
+      for (var k = 0; k < keywords.length; k++) {
+        if (h.indexOf(String(keywords[k]).toLowerCase()) !== -1) {
+          match = true;
+          break;
+        }
+      }
+    }
+
+    if (match && mustNotContain) {
+      for (var m = 0; m < mustNotContain.length; m++) {
+        if (h.indexOf(String(mustNotContain[m]).toLowerCase()) !== -1) {
+          match = false;
+          break;
+        }
+      }
+    }
+
+    if (match) return values[i];
+  }
+  return null;
+}
+
+function ambilSoal_(headers, values, q, isTidak) {
+  var numRe = new RegExp('(^|[^0-9])' + q + '\\s*\\.');
+
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i] || '');
+    var hl = h.toLowerCase();
+
+    if (!numRe.test(hl)) continue;
+    if (hl.indexOf('paling') === -1) continue;
+
+    var adaTidak = hl.indexOf('tidak') !== -1;
+
+    if (isTidak && adaTidak) return values[i];
+    if (!isTidak && !adaTidak) return values[i];
+  }
+
+  return null;
+}
+
+function indexOfJawaban_(choices, answer) {
+  // 🔥 FUNGSI NORMALISASI: Mengubah spasi berlebih menjadi 1 spasi, menghapus spasi di ujung, dan mengubah ke huruf kecil
+  var normalize = function(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  };
+  
+  var a = normalize(answer);
+  for (var i = 0; i < choices.length; i++) {
+    if (normalize(choices[i]) === a) return i;
+  }
+  return -1;
+}
+
+function getOrCreateFolder_(name) {
+  var target;
+  try {
+    target = DriveApp.getFolderById(TARGET_FOLDER_ID);
+  } catch (e) {
+    throw new Error('Folder target tidak ditemukan. Pastikan TARGET_FOLDER_ID benar dan akun memiliki akses ke folder tersebut.');
+  }
+
+  var it = target.getFoldersByName(name);
+  return it.hasNext() ? it.next() : target.createFolder(name);
+}
+
+// ---------------------------------------------------------------------------
+// MESIN PERHITUNGAN — replika persis rumus Master DISC.xlsx
+// ---------------------------------------------------------------------------
+
+function hitungDISC_(posP, posK) {
+  var LETTERS = ['D', 'I', 'S', 'C'];
+
+  var cntP = { D: 0, I: 0, S: 0, C: 0 };
+  var cntK = { D: 0, I: 0, S: 0, C: 0 };
+  var starP = 0;
+  var starK = 0;
+
+  for (var q = 0; q < 24; q++) {
+    var lp = SCORE_P[q][posP[q] - 1];
+    var lk = SCORE_K[q][posK[q] - 1];
+
+    if (lp === '*') starP++;
+    else cntP[lp]++;
+
+    if (lk === '*') starK++;
+    else cntK[lk]++;
+  }
+
+  var countP = LETTERS.map(function(L) { return cntP[L]; });
+  var countK = LETTERS.map(function(L) { return cntK[L]; });
+  var countStarP = 24 - (countP[0] + countP[1] + countP[2] + countP[3]);
+  var countStarK = 24 - (countK[0] + countK[1] + countK[2] + countK[3]);
+  var diff = countP.map(function(v, i) { return v - countK[i]; });
+
+  function vlookup(table, keys, x, col) {
+    var r = table[0][col];
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k] <= x) r = table[k][col];
+      else break;
+    }
+    return r;
+  }
+
+  var keysN = [];
+  for (var n = 0; n <= 20; n++) keysN.push(n);
+
+  var keysCh = [];
+  for (var m = -22; m <= 22; m++) keysCh.push(m);
+
+  var g1 = countP.map(function(v, i) { return vlookup(TABLE_MOST, keysN, v, i); });
+  var g2 = countK.map(function(v, i) { return vlookup(TABLE_LEAST, keysN, v, i); });
+  var g3 = diff.map(function(v, i) { return vlookup(TABLE_CHANGE, keysCh, v, i); });
+
+  function matchPattern(g) {
+    for (var p = 0; p < PATTERN_CONDITIONS.length; p++) {
+      if (PATTERN_CONDITIONS[p](g[0], g[1], g[2], g[3])) return p;
+    }
+    return -1;
+  }
+
+  var idx = [matchPattern(g1), matchPattern(g2), matchPattern(g3)];
+
+  var pola = idx.map(function(i) {
+    if (i === -1) {
+      return {
+        index: -1,
+        nama: 'Tidak terdefinisi',
+        title: '-',
+        traits: [],
+        professions: '-',
+        description: '-'
+      };
+    }
+    var d = DEF_DATA[i];
+    return {
+      index: i + 1,
+      nama: PATTERN_NAMES[i],
+      title: d.title,
+      traits: d.traits,
+      professions: d.professions,
+      description: d.description
+    };
+  });
+
+  var domIdx = 0;
+  for (var t = 1; t < 4; t++) {
+    if (g3[t] > g3[domIdx]) domIdx = t;
+  }
+
+  var hurufDominan = LETTERS[domIdx];
+
+  return {
+    countP: countP,
+    countK: countK,
+    starP: countStarP,
+    starK: countStarK,
+    diff: diff,
+    g1: g1,
+    g2: g2,
+    g3: g3,
+    pola: pola,
+    hurufDominan: hurufDominan,
+    detail: DETAIL[hurufDominan]
+  };
+}
+
+function tulisHasil_(h) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName('Hasil') || ss.insertSheet('Hasil');
+
+  if (sh.getLastRow() === 0) {
+    sh.appendRow([
+      'Timestamp', 'Nama', 'Usia', 'Gender', 'Tgl Tes',
+      'MOST D', 'MOST I', 'MOST S', 'MOST C', 'MOST *',
+      'LEAST D', 'LEAST I', 'LEAST S', 'LEAST C', 'LEAST *',
+      'Grafik1 D', 'Grafik1 I', 'Grafik1 S', 'Grafik1 C',
+      'Grafik2 D', 'Grafik2 I', 'Grafik2 S', 'Grafik2 C',
+      'Grafik3 D', 'Grafik3 I', 'Grafik3 S', 'Grafik3 C',
+      'Pola MOST', 'Pola LEAST', 'Pola CHANGE', 'Dominan'
+    ]);
+  }
+
+  sh.appendRow(
+    [new Date(), h.identitas.nama, h.identitas.usia, h.identitas.gender, h.identitas.tanggal]
+      .concat(h.countP).concat([h.starP])
+      .concat(h.countK).concat([h.starK])
+      .concat(h.g1)
+      .concat(h.g2)
+      .concat(h.g3)
+      .concat([
+        h.pola[0].nama + ' (' + h.pola[0].title + ')',
+        h.pola[1].nama + ' (' + h.pola[1].title + ')',
+        h.pola[2].nama + ' (' + h.pola[2].title + ')',
+        h.hurufDominan
+      ])
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LAPORAN PDF (HTML modern -> PDF)
+// ---------------------------------------------------------------------------
+
+function esc_(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function svgGraph_(values, accent) {
+  var LETTERS = ['D', 'I', 'S', 'C'];
+  var W = 190;
+  var H = 180;
+  var TOP = 18;
+  var BOT = 138;
+  var MID = (TOP + BOT) / 2;
+  var xs = [30, 74, 118, 162];
+
+  function yOf(v) {
+    return MID - v * ((BOT - TOP) / 16);
+  }
+
+  var s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+
+  [-8, -4, 0, 4, 8].forEach(function(g) {
+    var y = yOf(g);
+    s += '<line x1="16" y1="' + y + '" x2="' + (W - 8) + '" y2="' + y + '" stroke="' + (g === 0 ? '#94a3b8' : '#e2e8f0') + '" stroke-width="' + (g === 0 ? 1.1 : 0.7) + '"/>';
+    s += '<text x="5" y="' + (y + 3) + '" font-size="7" fill="#94a3b8">' + g + '</text>';
+  });
+
+  var pts = values.map(function(v, i) {
+    return xs[i] + ',' + yOf(v);
+  }).join(' ');
+
+  s += '<polyline points="' + pts + '" fill="none" stroke="' + accent + '" stroke-width="2" stroke-linejoin="round"/>';
+
+  values.forEach(function(v, i) {
+    var y = yOf(v);
+    s += '<circle cx="' + xs[i] + '" cy="' + y + '" r="4.2" fill="' + accent + '" stroke="#ffffff" stroke-width="1.2"/>';
+    s += '<text x="' + xs[i] + '" y="' + (y - 7) + '" font-size="8" font-weight="700" text-anchor="middle" fill="#334155">' + (Math.round(v * 10) / 10) + '</text>';
+    s += '<text x="' + xs[i] + '" y="' + (H - 22) + '" font-size="10" font-weight="800" text-anchor="middle" fill="#0f172a">' + LETTERS[i] + '</text>';
+    s += '<text x="' + xs[i] + '" y="' + (H - 10) + '" font-size="6" text-anchor="middle" fill="#64748b">' + ['DOMINANCE', 'INFLUENCE', 'STEADINESS', 'COMPLIANCE'][i] + '</text>';
+  });
+
+  s += '</svg>';
+  return s;
+}
+
+function traitsChips_(traits) {
+  if (!traits || !traits.length) return '<span class="muted">-</span>';
+  return traits.map(function(t) {
+    return '<span class="chip">' + esc_(t) + '</span>';
+  }).join(' ');
+}
+
+function bulletList_(arr) {
+  return arr.map(function(x) {
+    return '<li>' + esc_(String(x).replace(/^[•\s]+/, '')) + '</li>';
+  }).join('');
+}
+
+function buildReportHtml_(h) {
+  var id = h.identitas;
+
+  var COLORS = {
+    D: '#e11d48',
+    I: '#f59e0b',
+    S: '#10b981',
+    C: '#3b82f6'
+  };
+
+  var accent = COLORS[h.hurufDominan];
+
+  var graphs = [
+    { judul: 'GRAFIK 1 — MOST', sub: 'Topeng / citra yang ditampilkan', vals: h.g1, pola: h.pola[0] },
+    { judul: 'GRAFIK 2 — LEAST', sub: 'Kepribadian di bawah tekanan', vals: h.g2, pola: h.pola[1] },
+    { judul: 'GRAFIK 3 — CHANGE', sub: 'Kepribadian alami (diri sejati)', vals: h.g3, pola: h.pola[2] }
+  ];
+
+  var graphCards = graphs.map(function(g, i) {
+    return '<div class="gcard avoid-break">' +
+      '<div class="gtitle">' + g.judul + '</div>' +
+      '<div class="gsub">' + g.sub + '</div>' +
+      svgGraph_(g.vals, ['#0ea5e9', '#8b5cf6', accent][i]) +
+      '<div class="gpattern">Pola: <b>' + esc_(g.pola.nama) + '</b> — ' + esc_(g.pola.title) + '</div>' +
+      '</div>';
+  }).join('');
+
+  var html =
+    '<html><head><meta charset="UTF-8"><style>' +
+
+    /* ========================================================================
+       MASTER TAMPILAN PDF
+       Silakan ubah margin, warna, ukuran font, dan jarak dari blok CSS ini.
+    ======================================================================== */
+    '@page { size: A4; margin: 10mm; }' +
+    '* { box-sizing: border-box; }' +
+    'body { font-family: Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #ffffff; font-size: 10px; line-height: 1.35; }' +
+    '.page { width: 100%; margin: 0; padding: 0; }' +
+    '.avoid-break { page-break-inside: avoid; break-inside: avoid; }' +
+
+    '.hero { background: linear-gradient(135deg, #0f172a, #1e3a8a); color: #fff; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }' +
+    '.hero h1 { margin: 0; font-size: 16px; letter-spacing: 0.8px; }' +
+    '.hero .sub { font-size: 8px; letter-spacing: 2px; color: #93c5fd; margin-top: 2px; }' +
+    '.meta { margin-top: 5px; font-size: 9.5px; line-height: 1.35; }' +
+    '.meta b { display: inline-block; width: 82px; color: #bfdbfe; }' +
+    '.badge { display: inline-block; background: ' + accent + '; color: #fff; font-weight: 800; font-size: 10px; padding: 4px 10px; border-radius: 999px; margin-top: 5px; }' +
+
+    'h2 { font-size: 10.5px; letter-spacing: 1px; color: #1e3a8a; border-bottom: 1.5px solid #dbeafe; padding-bottom: 3px; margin: 8px 0 5px; text-transform: uppercase; }' +
+
+    '.graphs { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 6px; }' +
+    '.gcard { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 0; text-align: center; }' +
+    '.gtitle { font-size: 9px; font-weight: 800; color: #0f172a; }' +
+    '.gsub { font-size: 7.5px; color: #64748b; margin-bottom: 2px; }' +
+    '.gpattern { font-size: 8px; color: #334155; padding: 2px 6px 0; }' +
+
+    '.chip { display: inline-block; background: #eef2ff; color: #3730a3; font-size: 8px; border-radius: 999px; padding: 2px 7px; margin: 2px 3px 2px 0; }' +
+
+    '.cols { display: flex; gap: 7px; margin: 5px 0; }' +
+    '.col { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; }' +
+    '.col h3 { margin: 0 0 3px; font-size: 9.5px; color: #0f172a; text-transform: uppercase; }' +
+    '.col .cap { font-size: 7.8px; color: #64748b; margin-bottom: 3px; }' +
+
+    'p.desc { font-size: 9.5px; line-height: 1.45; text-align: justify; background: #f8fafc; border-left: 3px solid ' + accent + '; padding: 7px 10px; border-radius: 0 8px 8px 0; margin: 5px 0; }' +
+    'ul { font-size: 9px; line-height: 1.35; margin: 3px 0; padding-left: 14px; }' +
+    '.muted { color: #94a3b8; }' +
+
+    '.profesi { font-size: 9px; line-height: 1.4; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 7px 10px; margin: 5px 0; }' +
+    '.footer { margin-top: 6px; font-size: 7.5px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 5px; }' +
+
+    '</style></head><body><div class="page">' +
+
+    // ---------- Sampul ----------
+    '<div class="hero avoid-break">' +
+      '<h1>HASIL TES D.I.S.C.</h1>' +
+      '<div class="sub">SELF INVENTORY PERSONALITY TEST</div>' +
+      '<div class="meta">' +
+        '<div><b>Nama</b>: ' + esc_(id.nama) + '</div>' +
+        '<div><b>Usia</b>: ' + esc_(id.usia) + ' tahun &nbsp;&nbsp; <b>Jenis Kelamin</b>: ' + esc_(id.gender) + '</div>' +
+        '<div><b>Tanggal Tes</b>: ' + esc_(id.tanggal) + '</div>' +
+      '</div>' +
+      '<div class="badge">Profil Alami: ' + esc_(h.pola[2].nama) + ' — ' + esc_(h.pola[2].title) + '</div>' +
+    '</div>' +
+
+    // ---------- Tiga grafik ----------
+    '<h2>TIGA GRAFIK DISC</h2>' +
+    '<div class="graphs avoid-break">' + graphCards + '</div>' +
+
+    // ---------- Tiga gambaran pola ----------
+    '<h2>INTERPRETASI POLA</h2>' +
+    '<div class="cols avoid-break">' +
+      '<div class="col">' +
+        '<h3>Gambaran Kepribadian</h3>' +
+        '<div class="cap">Kepribadian yang biasa ditunjukkan (Grafik 1 / MOST) — ' + esc_(h.pola[0].nama) + ' / ' + esc_(h.pola[0].title) + '</div>' +
+        traitsChips_(h.pola[0].traits) +
+      '</div>' +
+      '<div class="col">' +
+        '<h3>Di Bawah Tekanan</h3>' +
+        '<div class="cap">Kepribadian saat tertekan (Grafik 2 / LEAST) — ' + esc_(h.pola[1].nama) + ' / ' + esc_(h.pola[1].title) + '</div>' +
+        traitsChips_(h.pola[1].traits) +
+      '</div>' +
+      '<div class="col">' +
+        '<h3>Kepribadian Alami</h3>' +
+        '<div class="cap">Diri sejati yang tersembunyi (Grafik 3 / CHANGE) — ' + esc_(h.pola[2].nama) + ' / ' + esc_(h.pola[2].title) + '</div>' +
+        traitsChips_(h.pola[2].traits) +
+      '</div>' +
+    '</div>' +
+
+    // ---------- Deskripsi & profesi ----------
+    '<h2>DESKRIPSI KEPRIBADIAN (' + esc_(h.pola[2].title) + ')</h2>' +
+    '<p class="desc avoid-break">' + esc_(h.pola[2].description) + '</p>' +
+
+    '<h2>PROFESI YANG COCOK</h2>' +
+    '<div class="profesi avoid-break">' + esc_(h.pola[2].professions) + '</div>' +
+
+    // ---------- Detail huruf dominan ----------
+    '<h2>TIPE DOMINAN: ' + h.hurufDominan + ' — ' + esc_(h.detail.judul) + '</h2>' +
+    '<div class="cols avoid-break">' +
+      '<div class="col">' +
+        '<h3>Potret Diri Anda</h3>' +
+        '<ul>' + bulletList_(h.detail.potret) + '</ul>' +
+      '</div>' +
+      '<div class="col">' +
+        '<h3>Kecenderungan yang Anda miliki</h3>' +
+        '<ul>' + bulletList_(h.detail.kecenderungan) + '</ul>' +
+      '</div>' +
+    '</div>' +
+
+    '<p class="desc avoid-break">' + esc_(h.detail.deskripsi) + '</p>' +
+
+    '<div class="col avoid-break">' +
+      '<h3>Perbaikan, peningkatan &amp; pengembangan yang dapat dilakukan</h3>' +
+      '<ul>' + bulletList_(h.detail.pengembangan) + '</ul>' +
+    '</div>' +
+
+    '<div class="footer">Laporan ini dihasilkan otomatis oleh sistem DISC • dibuat pada ' +
+      Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM yyyy HH:mm') +
+    '</div>' +
+
+    '</div></body></html>';
+
+  return html;
+}

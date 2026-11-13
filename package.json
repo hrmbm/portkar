@@ -1,0 +1,10 @@
+{
+  "name": "portal-karir",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check assets/js/common.js && node --check assets/js/applicant.js && node --check assets/js/ktp-ocr.js && node --check assets/js/disc.js && node --check assets/js/disc-engine.js && node --check assets/js/print.js && node --check assets/js/admin.js"
+  }
+}

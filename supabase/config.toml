@@ -1,0 +1,5 @@
+# Referensi konfigurasi proyek.
+# Untuk pemasangan tanpa terminal, nonaktifkan Enforce JWT Verification
+# melalui Supabase Dashboard → Edge Functions → admin-login → Details.
+[functions.admin-login]
+verify_jwt = false
