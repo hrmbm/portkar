@@ -217,7 +217,9 @@ function renderWork(values={}){
       if(type==='checkbox')return {name:p+key,label,type:'checkbox'};
       return {name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)};
     });
-    return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(fs,values)}</div>`;
+    const endFields=fs.filter(field=>/selesai_(bulan|tahun)$/.test(field.name.slice(p.length)));
+    const otherFields=fs.filter(field=>!endFields.includes(field));
+    return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(otherFields,values)}<div data-work-end="${n}">${basicGrid(endFields,values)}</div></div>`;
   }).join('');
   return sectionHtml('F','PENGALAMAN KERJA',`${countSelect('kerja_count','Jumlah pengalaman kerja',3,count,0)}<div class="conditional-fields" data-conditional="true" data-block="work-rows" ${count?'':'hidden'}><div id="work-rows">${rows}</div></div>`);
 }
@@ -342,7 +344,9 @@ function rerenderGroups(form){
         if(type==='checkbox')return {name:p+key,label,type:'checkbox'};
         return {name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)};
       });
-      return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(fields,values)}</div>`;
+      const endFields=fields.filter(field=>/selesai_(bulan|tahun)$/.test(field.name.slice(p.length)));
+      const otherFields=fields.filter(field=>!endFields.includes(field));
+      return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(otherFields,values)}<div data-work-end="${n}">${basicGrid(endFields,values)}</div></div>`;
     }).join('');
   }
   updateDynamic(form,values);syncApplicantRow(form);updateAddressPreview(form);
@@ -723,15 +727,6 @@ async function startCamera(){
     cameraFallback=true;fallback.hidden=false;$('#capture-ktp').disabled=true;
     if(status)status.textContent='Izinkan akses kamera atau gunakan kamera ponsel.';
   }
-}
-function showOcrFailure(error){
-  ocrAttempts++;
-  const status=$('#ocr-status');
-  if(status)status.textContent=`Percobaan ${ocrAttempts}/3 belum berhasil. ${error?.message||'Pastikan foto fokus, tidak silau, dan seluruh KTP terlihat.'}`;
-  const manual=$('#manual-entry');
-  if(manual)manual.hidden=ocrAttempts<3;
-  const button=$('#capture-ktp');
-  if(button)button.textContent=ocrAttempts>=3?'Coba foto lagi':'Ambil ulang foto KTP';
 }
 async function processPhotoFile(file){
   if(!file)return;
