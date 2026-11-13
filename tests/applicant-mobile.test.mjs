@@ -42,21 +42,33 @@ test('KTP photo is stored privately and all OCR inference runs in the browser wi
   assert.match(edge,/status: 410/);
   assert.doesNotMatch(edge,/KTP_OCR_API_URL|KTP_OCR_API_KEY|fetch\(/);
 });
-test('region dropdowns are hierarchical, cached, and never load the full village table',async()=>{
+test('region dropdowns use persistent bounded cache, stale-response guards, and postal lookup from village rows',async()=>{
   const js=await read('assets/js/applicant.js');
-  const migration=await read('supabase/migrations/20261113122500_form_ocr_regions.sql');
+  const baseMigration=await read('supabase/migrations/20261113122500_form_ocr_regions.sql');
+  const postalMigration=await read('supabase/migrations/20261113083245_region_village_postal_lookup.sql');
   assert.doesNotMatch(js,/provinceChoices/);
-  for(const fn of ['list_region_provinces','list_region_regencies','list_region_districts','list_region_villages','get_region_postal_code']){
+  for(const fn of ['list_region_provinces','list_region_regencies','list_region_districts']){
     assert.match(js,new RegExp(fn));
-    assert.match(migration,new RegExp('function public\\.'+fn,'i'));
+    assert.match(baseMigration,new RegExp('function public\\.'+fn,'i'));
   }
+  assert.match(js,/list_region_villages_with_postal_code/);
+  assert.match(postalMigration,/returns table\(id text, name text, area_type text, postal_code text\)/i);
+  assert.match(postalMigration,/v\.postal_code/);
+  assert.match(js,/indexedDB\.open\(REGION_CACHE_DB,1\)/);
+  assert.match(js,/REGION_CACHE_TTL_MS/);
+  assert.match(js,/REGION_CACHE_VERSION/);
+  assert.match(js,/REGION_CACHE_MAX_ENTRIES = 100/);
+  assert.match(js,/regionInflight/);
+  assert.match(js,/regionFormGeneration/);
+  assert.match(js,/isCurrentRegionGeneration/);
+  assert.match(js,/data-postal-code/);
+  assert.match(js,/option\.dataset\.postalCode/);
+  assert.doesNotMatch(js,/get_region_postal_code/);
   assert.match(js,/p_limit:30/);
-  assert.match(js,/regionCache/);
   assert.match(js,/alamat_provinsi_id/);
   assert.match(js,/alamat_kodepos/);
-  assert.match(js,/loadVillages\(form,district\.id/);
-  assert.match(migration,/regions_villages_district_idx/);
-  assert.match(migration,/regions_villages_postal_idx/);
+  assert.match(baseMigration,/regions_villages_district_idx/);
+  assert.match(baseMigration,/regions_villages_postal_idx/);
 });
 
 test('revised family, education, foreign-language, work, and emergency-contact fields are present',async()=>{

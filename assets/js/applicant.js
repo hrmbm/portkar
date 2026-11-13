@@ -362,75 +362,214 @@ function updateAddressPreview(form){
   preview.classList.toggle('empty',!address);
 }
 
-const regionCache=new Map();
+const REGION_CACHE_DB = 'portal-karir-region-cache';
+const REGION_CACHE_STORE = 'lookups';
+const REGION_CACHE_VERSION = '2026-11-13-v2';
+const REGION_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const REGION_CACHE_MAX_ENTRIES = 100;
+const regionCache = new Map();
+const regionInflight = new Map();
+const regionFormGeneration = new WeakMap();
+let regionDbPromise = null;
+
+function openRegionCacheDb(){
+  if(!('indexedDB' in window))return Promise.resolve(null);
+  if(!regionDbPromise){
+    regionDbPromise=new Promise(resolve=>{
+      let request;
+      try{request=window.indexedDB.open(REGION_CACHE_DB,1);}
+      catch{resolve(null);return;}
+      request.onupgradeneeded=()=>{
+        const db=request.result;
+        if(!db.objectStoreNames.contains(REGION_CACHE_STORE))
+          db.createObjectStore(REGION_CACHE_STORE,{keyPath:'key'});
+      };
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>resolve(null);
+      request.onblocked=()=>resolve(null);
+    });
+  }
+  return regionDbPromise;
+}
+async function readPersistentRegionCache(key){
+  const db=await openRegionCacheDb();
+  if(!db)return null;
+  return new Promise(resolve=>{
+    try{
+      const tx=db.transaction(REGION_CACHE_STORE,'readonly');
+      const request=tx.objectStore(REGION_CACHE_STORE).get(key);
+      request.onsuccess=()=>{
+        const entry=request.result;
+        if(!entry||entry.version!==REGION_CACHE_VERSION||entry.expiresAt<=Date.now()){
+          resolve(null);return;
+        }
+        resolve(entry.data);
+      };
+      request.onerror=()=>resolve(null);
+      tx.onabort=()=>resolve(null);
+    }catch{resolve(null);}
+  });
+}
+async function writePersistentRegionCache(key,data){
+  const db=await openRegionCacheDb();
+  if(!db)return;
+  return new Promise(resolve=>{
+    try{
+      const tx=db.transaction(REGION_CACHE_STORE,'readwrite');
+      const store=tx.objectStore(REGION_CACHE_STORE);
+      const now=Date.now();
+      store.put({key,version:REGION_CACHE_VERSION,createdAt:now,expiresAt:now+REGION_CACHE_TTL_MS,data});
+      const all=store.getAll();
+      all.onsuccess=()=>{
+        const entries=all.result||[];
+        const valid=entries.filter(entry=>entry.version===REGION_CACHE_VERSION&&entry.expiresAt>now)
+          .sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+        for(const entry of entries){
+          if(entry.version!==REGION_CACHE_VERSION||entry.expiresAt<=now)store.delete(entry.key);
+        }
+        while(valid.length>REGION_CACHE_MAX_ENTRIES){
+          const oldest=valid.shift();
+          if(oldest.key!==key)store.delete(oldest.key);
+        }
+      };
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>resolve();
+      tx.onabort=()=>resolve();
+    }catch{resolve();}
+  });
+}
+function rememberRegionResult(key,data){
+  regionCache.set(key,{data,expiresAt:Date.now()+REGION_CACHE_TTL_MS});
+  while(regionCache.size>REGION_CACHE_MAX_ENTRIES){
+    regionCache.delete(regionCache.keys().next().value);
+  }
+}
 async function regionRpc(name,params={}){
-  const key=name+':'+JSON.stringify(params);
-  if(regionCache.has(key))return regionCache.get(key);
-  const promise=(async()=>{const {data,error}=await supabase.rpc(name,params);if(error)throw error;return data||[];})();
-  regionCache.set(key,promise);
-  try{return await promise;}catch(error){regionCache.delete(key);throw error;}
+  const key=REGION_CACHE_VERSION+':'+name+':'+JSON.stringify(params);
+  const cached=regionCache.get(key);
+  if(cached&&cached.expiresAt>Date.now())return cached.data;
+  if(cached)regionCache.delete(key);
+  if(regionInflight.has(key))return regionInflight.get(key);
+
+  const request=(async()=>{
+    const persistent=await readPersistentRegionCache(key);
+    if(persistent!==null){
+      rememberRegionResult(key,persistent);
+      return persistent;
+    }
+    const {data,error}=await supabase.rpc(name,params);
+    if(error)throw error;
+    const rows=data||[];
+    rememberRegionResult(key,rows);
+    writePersistentRegionCache(key,rows).catch(()=>{});
+    return rows;
+  })();
+  regionInflight.set(key,request);
+  try{return await request;}
+  finally{if(regionInflight.get(key)===request)regionInflight.delete(key);}
+}
+function beginRegionGeneration(form){
+  const next=(regionFormGeneration.get(form)||0)+1;
+  regionFormGeneration.set(form,next);
+  return next;
+}
+function currentRegionGeneration(form){return regionFormGeneration.get(form)||0;}
+function isCurrentRegionGeneration(form,generation){
+  return regionFormGeneration.get(form)===generation;
 }
 function setSelect(select,rows,placeholder){
   if(!select)return;
   const selected=select.value;
-  select.innerHTML='<option value="">'+esc(placeholder||'Pilih')+'</option>'+rows.map(row=>`<option value="${esc(row.id)}">${esc(row.name)}</option>`).join('');
+  select.innerHTML='<option value="">'+esc(placeholder||'Pilih')+'</option>'+rows.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.name)+'</option>').join('');
   if(rows.some(row=>String(row.id)===selected))select.value=selected;
 }
 function regionNormalize(value){
   return String(value||'').toLocaleUpperCase('id-ID').replace(/\b(PROVINSI|KABUPATEN|KAB\.?|KOTA ADMINISTRASI|KOTA)\b/g,' ').replace(/[^A-Z0-9]/g,'').trim();
 }
-function setAddressLabel(form,name,value){const el=form.querySelector(`[name="${name}"]`);if(el)el.value=value||'';}
+function setAddressLabel(form,name,value){
+  const el=form.querySelector('[name="'+name+'"]');if(el)el.value=value||'';
+}
+function setVillageAddress(form,village){
+  setAddressLabel(form,'alamat_desa',village?.name||'');
+  setAddressLabel(form,'alamat_wilayah_type',village?.area_type||'');
+  const postal=form.querySelector('[name="alamat_kodepos"]');
+  if(postal)postal.value=village?.postal_code||'';
+}
 function findRegion(rows,value){
   const wanted=regionNormalize(value);
   return rows.find(row=>regionNormalize(row.name)===wanted)||rows.find(row=>wanted&&(regionNormalize(row.name).includes(wanted)||wanted.includes(regionNormalize(row.name))));
 }
-async function loadProvinces(form){
+async function loadProvinces(form,generation=currentRegionGeneration(form)){
   const rows=await regionRpc('list_region_provinces');
-  setSelect(form.querySelector('[name="alamat_provinsi_id"]'),rows,'Pilih provinsi');return rows;
+  if(isCurrentRegionGeneration(form,generation))
+    setSelect(form.querySelector('[name="alamat_provinsi_id"]'),rows,'Pilih provinsi');
+  return rows;
 }
-async function loadRegencies(form,provinceId){
+async function loadRegencies(form,provinceId,generation=currentRegionGeneration(form)){
   const rows=provinceId?await regionRpc('list_region_regencies',{p_province_id:provinceId}):[];
-  setSelect(form.querySelector('[name="alamat_kota_id"]'),rows,'Pilih kabupaten / kota');
-  const el=form.querySelector('[name="alamat_kota_id"]');if(el)el.disabled=!provinceId;return rows;
+  const currentProvince=form.querySelector('[name="alamat_provinsi_id"]')?.value||'';
+  if(isCurrentRegionGeneration(form,generation)&&currentProvince===provinceId){
+    setSelect(form.querySelector('[name="alamat_kota_id"]'),rows,'Pilih kabupaten / kota');
+    const el=form.querySelector('[name="alamat_kota_id"]');if(el)el.disabled=!provinceId;
+  }
+  return rows;
 }
-async function loadDistricts(form,regencyId){
+async function loadDistricts(form,regencyId,generation=currentRegionGeneration(form)){
   const rows=regencyId?await regionRpc('list_region_districts',{p_regency_id:regencyId}):[];
-  setSelect(form.querySelector('[name="alamat_kecamatan_id"]'),rows,'Pilih kecamatan');
-  const el=form.querySelector('[name="alamat_kecamatan_id"]');if(el)el.disabled=!regencyId;return rows;
+  const currentRegency=form.querySelector('[name="alamat_kota_id"]')?.value||'';
+  if(isCurrentRegionGeneration(form,generation)&&currentRegency===regencyId){
+    setSelect(form.querySelector('[name="alamat_kecamatan_id"]'),rows,'Pilih kecamatan');
+    const el=form.querySelector('[name="alamat_kecamatan_id"]');if(el)el.disabled=!regencyId;
+  }
+  return rows;
 }
-async function loadVillages(form,districtId,search=''){
-  const rows=districtId?await regionRpc('list_region_villages',{p_district_id:districtId,p_search:search||null,p_limit:30}):[];
+async function loadVillages(form,districtId,search='',generation=currentRegionGeneration(form)){
+  const rows=districtId?await regionRpc('list_region_villages_with_postal_code',{
+    p_district_id:districtId,p_search:search||null,p_limit:30
+  }):[];
+  const currentDistrict=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
   const select=form.querySelector('[name="alamat_desa_id"]');
-  if(select){
-    const selected=select.value;
-    select.innerHTML='<option value="">Pilih desa / kelurahan</option>'+rows.map(row=>`<option value="${esc(row.id)}" data-area-type="${esc(row.area_type)}">${esc(row.name)}</option>`).join('');
-    if(rows.some(row=>String(row.id)===selected))select.value=selected;select.disabled=!districtId;
+  if(select&&isCurrentRegionGeneration(form,generation)&&currentDistrict===districtId){
+    const previous=select.value;
+    select.innerHTML='<option value="">Pilih desa / kelurahan</option>'+rows.map(row=>
+      '<option value="'+esc(row.id)+'" data-area-type="'+esc(row.area_type||'Desa')+'" data-postal-code="'+esc(row.postal_code||'')+'">'+esc(row.name)+'</option>'
+    ).join('');
+    const stillSelected=rows.some(row=>String(row.id)===previous);
+    if(stillSelected)select.value=previous;
+    else if(previous)setVillageAddress(form,null);
+    select.disabled=!districtId;
   }
   return rows;
 }
 async function hydrateAddress(form,values={}){
+  const generation=beginRegionGeneration(form);
   const provinceSelect=form.querySelector('[name="alamat_provinsi_id"]');
   const regencySelect=form.querySelector('[name="alamat_kota_id"]');
   const districtSelect=form.querySelector('[name="alamat_kecamatan_id"]');
   const villageSelect=form.querySelector('[name="alamat_desa_id"]');
   for(const select of [regencySelect,districtSelect,villageSelect])if(select)select.disabled=true;
 
-  const provinces=await loadProvinces(form);
+  const provinces=await loadProvinces(form,generation);
+  if(!isCurrentRegionGeneration(form,generation))return;
   const province=findRegion(provinces,values.alamat_provinsi);
   if(!province){
-    await loadRegencies(form,'');
-    await loadDistricts(form,'');
-    await loadVillages(form,'');
+    await loadRegencies(form,'',generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadDistricts(form,'',generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadVillages(form,'','',generation);
     return;
   }
   provinceSelect.value=province.id;
   setAddressLabel(form,'alamat_provinsi',province.name);
 
-  const regencies=await loadRegencies(form,province.id);
+  const regencies=await loadRegencies(form,province.id,generation);
+  if(!isCurrentRegionGeneration(form,generation))return;
   const regency=findRegion(regencies,values.alamat_kota_nama);
   if(!regency){
-    await loadDistricts(form,'');
-    await loadVillages(form,'');
+    await loadDistricts(form,'',generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadVillages(form,'','',generation);
     return;
   }
   regencySelect.value=regency.id;
@@ -438,58 +577,86 @@ async function hydrateAddress(form,values={}){
   setAddressLabel(form,'alamat_kota_jenis',cityMatch?.[1]||'Kabupaten');
   setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\s+/i,''));
 
-  const districts=await loadDistricts(form,regency.id);
+  const districts=await loadDistricts(form,regency.id,generation);
+  if(!isCurrentRegionGeneration(form,generation))return;
   const district=findRegion(districts,values.alamat_kecamatan);
   if(!district){
-    await loadVillages(form,'');
+    await loadVillages(form,'','',generation);
     return;
   }
   districtSelect.value=district.id;
   setAddressLabel(form,'alamat_kecamatan',district.name);
 
   const villageSearch=String(values.alamat_desa||'').trim().replace(/[.,;]+$/,'');
-  let villages=await loadVillages(form,district.id,villageSearch);
+  let villages=await loadVillages(form,district.id,villageSearch,generation);
+  if(!isCurrentRegionGeneration(form,generation))return;
   let village=findRegion(villages,values.alamat_desa);
   if(!village&&villageSearch.length>3){
-    villages=await loadVillages(form,district.id,villageSearch.slice(0,3));
+    villages=await loadVillages(form,district.id,villageSearch.slice(0,3),generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
     village=findRegion(villages,values.alamat_desa);
   }
   if(village){
     villageSelect.value=village.id;
-    setAddressLabel(form,'alamat_desa',village.name);
-    setAddressLabel(form,'alamat_wilayah_type',village.area_type);
-    const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:village.id});
-    if(!error)form.querySelector('[name="alamat_kodepos"]').value=postal||'';
-  }
+    setVillageAddress(form,village);
+  }else setVillageAddress(form,null);
   updateAddressPreview(form);
 }
 async function onRegionChange(form,name){
-  const value=form.querySelector(`[name="${name}"]`)?.value||'';
+  const generation=beginRegionGeneration(form);
+  if(name!=='alamat_desa_id')clearTimeout(villageSearchTimer);
+  const value=form.querySelector('[name="'+name+'"]')?.value||'';
   if(name==='alamat_provinsi_id'){
-    const rows=await loadProvinces(form),row=rows.find(x=>x.id===value);setAddressLabel(form,'alamat_provinsi',row?.name||'');
-    for(const k of ['alamat_kota_jenis','alamat_kota_nama','alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,k,'');
-    for(const field of ['alamat_kota_id','alamat_kecamatan_id','alamat_desa_id']){const el=form.querySelector(`[name="${field}"]`);if(el)el.value='';}
-    await loadRegencies(form,value);await loadDistricts(form,'');await loadVillages(form,'');
+    const rows=await loadProvinces(form,generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    const row=rows.find(item=>item.id===value);
+    setAddressLabel(form,'alamat_provinsi',row?.name||'');
+    for(const key of ['alamat_kota_jenis','alamat_kota_nama','alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,key,'');
+    for(const field of ['alamat_kota_id','alamat_kecamatan_id','alamat_desa_id']){
+      const el=form.querySelector('[name="'+field+'"]');if(el)el.value='';
+    }
+    await loadRegencies(form,value,generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadDistricts(form,'',generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadVillages(form,'','',generation);
   }else if(name==='alamat_kota_id'){
-    const rows=await loadRegencies(form,form.querySelector('[name="alamat_provinsi_id"]').value),row=rows.find(x=>x.id===value),match=row?.name.match(/^(Kabupaten|Kota)\s+/i);
-    setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'Kabupaten');setAddressLabel(form,'alamat_kota_nama',row?.name.replace(/^(Kabupaten|Kota)\s+/i,'')||'');
-    for(const k of ['alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,k,'');
-    for(const field of ['alamat_kecamatan_id','alamat_desa_id']){const el=form.querySelector(`[name="${field}"]`);if(el)el.value='';}
-    await loadDistricts(form,value);await loadVillages(form,'');
+    const provinceId=form.querySelector('[name="alamat_provinsi_id"]')?.value||'';
+    const rows=await loadRegencies(form,provinceId,generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    const row=rows.find(item=>item.id===value);
+    const match=row?.name.match(/^(Kabupaten|Kota)\s+/i);
+    setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'');
+    setAddressLabel(form,'alamat_kota_nama',row?.name.replace(/^(Kabupaten|Kota)\s+/i,'')||'');
+    for(const key of ['alamat_kecamatan','alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,key,'');
+    for(const field of ['alamat_kecamatan_id','alamat_desa_id']){
+      const el=form.querySelector('[name="'+field+'"]');if(el)el.value='';
+    }
+    await loadDistricts(form,value,generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    await loadVillages(form,'','',generation);
   }else if(name==='alamat_kecamatan_id'){
-    const rows=await loadDistricts(form,form.querySelector('[name="alamat_kota_id"]').value),row=rows.find(x=>x.id===value);
+    const regencyId=form.querySelector('[name="alamat_kota_id"]')?.value||'';
+    const rows=await loadDistricts(form,regencyId,generation);
+    if(!isCurrentRegionGeneration(form,generation))return;
+    const row=rows.find(item=>item.id===value);
     setAddressLabel(form,'alamat_kecamatan',row?.name||'');
-    for(const k of ['alamat_desa','alamat_kodepos','alamat_wilayah_type'])setAddressLabel(form,k,'');
-    const desa=form.querySelector('[name="alamat_desa_id"]');if(desa)desa.value='';await loadVillages(form,value);
+    for(const key of ['alamat_desa','alamat_wilayah_type','alamat_kodepos'])setAddressLabel(form,key,'');
+    const village=form.querySelector('[name="alamat_desa_id"]');if(village)village.value='';
+    await loadVillages(form,value,'',generation);
   }else if(name==='alamat_desa_id'){
-    const select=form.querySelector('[name="alamat_desa_id"]'),row=select?.selectedOptions?.[0];
-    setAddressLabel(form,'alamat_desa',row?.textContent||'');setAddressLabel(form,'alamat_wilayah_type',row?.dataset.areaType||'Desa');
-    const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:value});if(error)throw error;
-    const input=form.querySelector('[name="alamat_kodepos"]');if(input)input.value=postal||'';
+    const select=form.querySelector('[name="alamat_desa_id"]');
+    const option=select?.selectedOptions?.[0];
+    if(option?.value){
+      setVillageAddress(form,{
+        name:option.textContent,
+        area_type:option.dataset.areaType||'Desa',
+        postal_code:option.dataset.postalCode||''
+      });
+    }else setVillageAddress(form,null);
   }
   updateAddressPreview(form);queueDraftSave(form);
 }
-
 function setWizardStep(step,{push=false,replace=false}={}){
   activeStep=Math.max(0,Math.min(stepNames.length-1,step));
   $$('.form-step',root).forEach(el=>el.hidden=Number(el.dataset.formStep)!==activeStep);
@@ -825,7 +992,8 @@ function showForm(){
         const districtId=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
         const term=el.value.trim();
         if(districtId&&(term.length>=2||term.length===0)){
-          loadVillages(form,districtId,term).catch(error=>saveState(error.message||'Daftar desa gagal dimuat.',true));
+          const generation=beginRegionGeneration(form);
+          loadVillages(form,districtId,term,generation).catch(error=>saveState(error.message||'Daftar desa gagal dimuat.',true));
         }
       },280);
     }
