@@ -1,5 +1,5 @@
 import { supabase, isConfigured } from './supabase.js';
-import { MAX_CV_BYTES, CV_BUCKET, CV_PATH_PREFIX } from './config.js';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, MAX_CV_BYTES, CV_BUCKET, CV_PATH_PREFIX } from './config.js';
 import { $, esc, ageFrom, candidateToken, newCandidateToken, storeCandidateToken, stageUrl, setBusy } from './common.js';
 import { extractKtpText, formatKtpAddress } from './ktp-ocr.js';
 
@@ -511,13 +511,14 @@ function padRtRw(el){
 }
 function sanitizeFinalData(data){
   const result={...data};
-  // Conditional data is retained in the local draft but excluded from the final
-  // application record when the corresponding branch does not apply.
-  if(result.status_kawin!=='Kawin') for(const key of Object.keys(result)) if(key.startsWith('pasangan_')) delete result[key];
-  if(!result.status_kawin||result.status_kawin==='Belum kawin') for(const key of Object.keys(result)) if(key.startsWith('anak')) delete result[key];
-  if(String(result.domisili_berbeda)!=='true') result.domisili=result.alamat_asal||'';
+  if(result.status_kawin!=='Kawin')for(const key of Object.keys(result))if(key.startsWith('pasangan_'))delete result[key];
+  if(!result.status_kawin||result.status_kawin==='Belum kawin')for(const key of Object.keys(result))if(key.startsWith('anak'))delete result[key];
+  if(String(result.domisili_berbeda)!=='true')result.domisili=result.alamat_asal||'';
   delete result.domisili_berbeda;
-  delete result.__saved_at; delete result.__cv_filename;
+  delete result.alamat_desa_search;
+  delete result.referensi_count;
+  for(const key of Object.keys(result))if(key.startsWith('referensi'))delete result[key];
+  delete result.__saved_at;delete result.__cv_filename;
   return result;
 }
 function formatCurrencyInput(el){
@@ -613,7 +614,7 @@ function normalizeOcrServiceResponse(response){
   const address=raw.alamat||{};
   if(address.name)out.alamat_jalan=String(address.name).trim();
   const rtRw=String(address.rt_rw||'').replace(/\D/g,'');
-  if(rtRw.length>=6){out.alamat_rt=rtRw.slice(0,3);out.alamat_rw=rtRw.slice(3,6);}
+  if(rtRw.length>=6){out.alamat_rt=rtRw.slice(0,3);out.alamat_rw=rtRw.slice(-3);}
   else{
     const match=String(address.rt_rw||'').match(/(\d{1,3})\D+(\d{1,3})/);
     if(match){out.alamat_rt=match[1].padStart(3,'0');out.alamat_rw=match[2].padStart(3,'0');}
@@ -644,16 +645,17 @@ async function requestServerOcr(blob){
   }finally{clearTimeout(timeout);}
 }
 async function requestBrowserOcr(canvas,status){
+  const withTimeout=(promise)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('OCR melewati batas waktu 25 detik. Coba foto ulang.')),25000))]);
   if(!window.Tesseract)throw new Error('OCR server belum tersedia dan OCR browser tidak dapat dimuat.');
   let result;
   try{
-    result=await window.Tesseract.recognize(canvas,'ind+eng',{logger:m=>{
+    result=await withTimeout(window.Tesseract.recognize(canvas,'ind+eng',{logger:m=>{
       if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
-    }});
+    }}));
   }catch{
-    result=await window.Tesseract.recognize(canvas,'eng',{logger:m=>{
+    result=await withTimeout(window.Tesseract.recognize(canvas,'eng',{logger:m=>{
       if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
-    }});
+    }}));
   }
   return extractKtpText(result.data?.text||'');
 }
@@ -782,23 +784,32 @@ function showForm(){
   const form=$('#application-form');
   $('#cv-filename').textContent=cvFilename||'Unggah CV (PDF)';
   $('#cv-upload-state').textContent=cvFilename?'CV tersimpan':'';
-  const nik=form.querySelector('[name="nik"]');
-  const numericFields=['nik','alamat_rt','alamat_rw','alamat_kodepos'];
+  const numericFields=['nik','alamat_rt','alamat_rw'];
   form.addEventListener('input',event=>{
     const el=event.target;
-    if(numericFields.includes(el.name))normalizeDigitInput(el,el.name==='nik'?16:el.name==='alamat_kodepos'?5:3);
-    if(el.name==='telepon')normalizeDigitInput(el,16);
+    if(numericFields.includes(el.name))normalizeDigitInput(el,el.name==='nik'?16:3);
+    if(el.name==='telepon'||el.name==='kontak_darurat_telepon')normalizeDigitInput(el,16);
     if(el.dataset.formatNumber==='idr')formatCurrencyInput(el);
     if(['nama','tanggal_lahir','gender'].includes(el.name))syncApplicantRow(form);
-    if(addressFields.some(f=>f.name===el.name))updateAddressPreview(form);
+    if(addressFields.some(field=>field.name===el.name))updateAddressPreview(form);
+    if(el.name==='alamat_desa_search'){
+      clearTimeout(villageSearchTimer);
+      villageSearchTimer=setTimeout(()=>{
+        const districtId=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
+        loadVillages(form,districtId,el.value).catch(error=>saveState(error.message||'Data desa gagal dimuat.',true));
+      },280);
+    }
     queueDraftSave(form);
   });
   form.addEventListener('change',event=>{
     const key=event.target.name;
     if(['alamat_rt','alamat_rw'].includes(key))padRtRw(event.target);
-    if(['saudara_count','anak_count','bahasa_count','kerja_count','referensi_count'].includes(key))rerenderGroups(form);
-    else if(key==='status_kawin' || key==='domisili_berbeda'){
-      const current=collect(form);updateDynamic(form,current);
+    if(['alamat_provinsi_id','alamat_kota_id','alamat_kecamatan_id','alamat_desa_id'].includes(key)){
+      onRegionChange(form,key).catch(error=>saveState(error.message||'Wilayah gagal dimuat.',true));
+    }else if(['saudara_count','anak_count','bahasa_count','kerja_count'].includes(key)){
+      rerenderGroups(form);
+    }else if(key==='status_kawin'||key==='domisili_berbeda'||key==='pendidikan_terakhir'||/^bahasa[1-4]$/.test(key)){
+      updateDynamic(form,collect(form));
     }
     syncApplicantRow(form);updateAddressPreview(form);queueDraftSave(form);
   });
@@ -809,6 +820,9 @@ function showForm(){
     if(!validateCurrentStep(form))return;
     if(activeStep<stepNames.length-1){setWizardStep(activeStep+1,{push:true});return;}
     if(!cvFilename){error.textContent='Unggah CV dalam format PDF.';return;}
+    if(!initialData.ktp_path&&!form.querySelector('[name="ktp_path"]')?.value){
+      error.textContent='Foto KTP belum tersimpan. Silakan ulangi proses foto KTP.';return;
+    }
     if(!validateWholeForm(form))return;
     await submitApplication(form);
   });
@@ -819,14 +833,22 @@ function showForm(){
   history.replaceState({portalForm:true,step:activeStep,root:true},'',location.href);
   history.pushState({portalForm:true,step:activeStep,root:false},'',location.href);
   writeLocalDraft(form);
+  hydrateAddress(form,initialData).catch(error=>saveState(error.message||'Daftar wilayah gagal dimuat.',true));
+  updateAddressPreview(form);
 }
-
 function showExisting(ctx){
-  const nextUrl=stageUrl(3);
   if(ctx.disc_completed||ctx.stage==='disc_completed'){
     root.innerHTML=`<section class="candidate-card completion-card"><div class="completion-mark">✓</div><h1>Tes DISC selesai</h1><p>${esc(ctx.full_name||'')}</p></section>`;return;
   }
-  root.innerHTML=`<section class="candidate-card completion-card"><div class="completion-mark">✓</div><h1>Lamaran tersimpan</h1><p>${esc(ctx.full_name||'')}</p><a class="btn btn-primary full" href="${esc(nextUrl)}">Lanjutkan DISC</a></section>`;
+  root.innerHTML=`<section class="candidate-card completion-card"><div class="completion-mark">✓</div><h1>Lamaran berhasil dikirim!</h1><p>${esc(ctx.full_name||'')}, data lamaran Anda sudah tersimpan.</p>
+    <a class="btn btn-primary full" href="${esc(stageUrl(3))}">Lanjutkan Test DISC Sekarang</a>
+    <button type="button" class="btn btn-secondary full" id="disc-later" style="margin-top:10px">Test DISC Nanti</button>
+    <p id="disc-later-note" class="candidate-sub" hidden>Silakan kembali ke halaman formulir dari perangkat dan browser yang sama untuk melanjutkan Test DISC. Sesi kandidat tersimpan di perangkat ini.</p>
+  </section>`;
+  $('#disc-later')?.addEventListener('click',()=>{
+    const note=$('#disc-later-note');if(note)note.hidden=false;
+    const button=$('#disc-later');if(button){button.textContent='Pilihan disimpan';button.disabled=true;}
+  });
 }
 async function submitApplication(form){
   const error=$('#form-error'),button=$('#wizard-next');
@@ -835,16 +857,17 @@ async function submitApplication(form){
   const data=sanitizeFinalData(collect(form));
   if(!/^\d{16}$/.test(String(data.nik||''))){setWizardStep(0);error.textContent='NIK harus terdiri dari 16 angka.';return;}
   if(!data.nama){setWizardStep(0);error.textContent='Nama lengkap wajib diisi.';return;}
+  if(!data.ktp_path){error.textContent='Foto KTP belum tersimpan. Silakan kembali ke proses foto KTP.';return;}
   if(!draftToken)draftToken=newCandidateToken();
   setBusy(button,true,'Mengirim…');
   try{
     await flushDraft(form);
     const path=`${CV_PATH_PREFIX}/${draftToken}/cv.pdf`;
-    const {data:result,error:submitError}=await supabase.rpc('submit_candidate_application',{p_access_token:draftToken,p_data:data,p_cv_path:path});
+    const {error:submitError}=await supabase.rpc('submit_candidate_application',{p_access_token:draftToken,p_data:data,p_cv_path:path});
     if(submitError)throw submitError;
     storeCandidateToken(draftToken);
     try{localStorage.removeItem(localDraftKey());}catch{}
-    root.innerHTML=`<section class="candidate-card completion-card"><div class="completion-mark">✓</div><h1>Lamaran terkirim</h1><p>${esc(data.nama)}</p><a class="btn btn-primary full" href="${esc(stageUrl(3))}">Lanjutkan ke DISC</a></section>`;
+    showExisting({full_name:data.nama,stage:'application_submitted'});
   }catch(err){
     error.textContent=err.message||'Lamaran belum berhasil dikirim.';setBusy(button,false);
   }
