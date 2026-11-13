@@ -33,7 +33,8 @@ test('KTP photo is stored privately and all OCR inference runs in the browser wi
   assert.match(js,/Isi data manual \(foto KTP tetap tersimpan\)/);
   assert.match(js,/Tesseract\?\.createWorker/);
   assert.match(js,/instance\.recognize\(canvas\)/);
-  assert.match(js,/instance\.terminate\(\)/);
+  assert.match(js,/async function terminateWorker/);
+  assert.match(js,/await worker\.terminate\(\)/);
   assert.doesNotMatch(js,/requestServerOcr|normalizeOcrServiceResponse|functions\/v1\/ktp-ocr|KTP_OCR_API_URL/);
   assert.match(migration,/candidate-identity/);
   assert.match(migration,/public\.can_access_candidate_ktp_file/);
