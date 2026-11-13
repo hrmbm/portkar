@@ -18,29 +18,29 @@ test('form kandidat memakai wizard mobile dan alur kamera KTP',async()=>{
   assert.match(js,/data-form-step/);
 });
 
-test('KTP photo is stored privately before OCR and manual entry only unlocks after 3 OCR attempts',async()=>{
+test('KTP photo is stored privately and all OCR inference runs in the browser with a 3-attempt manual fallback',async()=>{
   const js=await read('assets/js/applicant.js');
   const migration=await read('supabase/migrations/20261113122500_form_ocr_regions.sql');
   const edge=await read('supabase/functions/ktp-ocr/index.ts');
-  assert.match(js,/saveKtpPhoto/);
   const config=await read('assets/js/config.js');
+  assert.match(js,/saveKtpPhoto/);
   assert.match(js,/KTP_PATH_PREFIX/);
-  assert.match(config,/candidate-identity/);
   assert.match(js,/supabase\.storage\.from\(KTP_BUCKET\)\.upload/);
-  assert.match(js,/ocrAttempts>=3/);
+  assert.match(config,/candidate-identity/);
+  assert.match(js,/MAX_OCR_ATTEMPTS = 3/);
   assert.match(js,/ocrAttempts\+=1/);
-  assert.match(js,/OCR gagal 3 kali|Isi data manual/);
-  assert.match(js,/requestServerOcr/);
-  assert.match(js,/requestBrowserOcr/);
-  assert.match(js,/30000/);
+  assert.match(js,/ocrAttempts>=MAX_OCR_ATTEMPTS/);
+  assert.match(js,/Isi data manual \(foto KTP tetap tersimpan\)/);
+  assert.match(js,/Tesseract\?\.createWorker/);
+  assert.match(js,/instance\.recognize\(canvas\)/);
+  assert.match(js,/instance\.terminate\(\)/);
+  assert.doesNotMatch(js,/requestServerOcr|normalizeOcrServiceResponse|functions\/v1\/ktp-ocr|KTP_OCR_API_URL/);
   assert.match(migration,/candidate-identity/);
   assert.match(migration,/public\.can_access_candidate_ktp_file/);
   assert.match(migration,/ktp_path/);
-  assert.match(edge,/KTP_OCR_API_URL/);
-  assert.match(edge,/KTP_OCR_API_KEY/);
-  assert.match(edge,/AbortController/);
+  assert.match(edge,/status: 410/);
+  assert.doesNotMatch(edge,/KTP_OCR_API_URL|KTP_OCR_API_KEY|fetch\(/);
 });
-
 test('region dropdowns are hierarchical, cached, and never load the full village table',async()=>{
   const js=await read('assets/js/applicant.js');
   const migration=await read('supabase/migrations/20261113122500_form_ocr_regions.sql');
