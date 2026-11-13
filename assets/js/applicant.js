@@ -40,7 +40,7 @@ const parentFields = [
   {name:'ibu_nama',label:'Nama ibu'}, {name:'ibu_umur',label:'Umur ibu (isi 0 jika meninggal)',type:'number',min:0,max:120},
   {name:'ibu_pendidikan',label:'Pendidikan ibu',type:'select',options:educationChoices}, {name:'ibu_pekerjaan',label:'Pekerjaan ibu'}
 ];
-const maritalField = {name:'status_kawin',label:'Status perkawinan',type:'select',options:choices(['Belum kawin','Kawin','Cerai hidup','Cerai mati']),required:true};
+const maritalField = {name:'status_kawin',label:'Status Perkawinan Anda',type:'select',options:choices(['Belum kawin','Kawin','Cerai hidup','Cerai mati']),required:true};
 const spouseFields = [
   {name:'pasangan_nama',label:'Nama suami / istri'},
   {name:'pasangan_lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},
@@ -176,7 +176,7 @@ function renderFamily(values={}){
       ${fieldHtml({name:'saudara_count',label:'Jumlah saudara kandung selain Anda',type:'select',options:[{value:'0',label:'0'},{value:'1',label:'1'},{value:'2',label:'2'},{value:'3+',label:'3 atau lebih'}]},values)}
       <div id="siblings-rows">${selfRow}${siblings}</div>
     </div>
-    <div class="repeat-row"><div class="repeat-title">Status Perkawinan Anda</div>${basicGrid([maritalField],values)}</div>
+    <div class="repeat-row">${basicGrid([maritalField],values)}</div>
     <div class="conditional-fields" data-conditional="true" data-block="spouse" ${spouseHidden}><div class="repeat-title">Suami / istri</div>${basicGrid(spouseFields,values)}</div>
     <div class="conditional-fields" data-conditional="true" data-block="children" ${childrenHidden}><div class="repeat-title">Anak</div>${countSelect('anak_count','Jumlah anak',3,childrenCount,0)}<div id="children-rows">${children}</div></div>`);
 }
@@ -407,17 +407,55 @@ async function loadVillages(form,districtId,search=''){
   return rows;
 }
 async function hydrateAddress(form,values={}){
-  const provinces=await loadProvinces(form),province=findRegion(provinces,values.alamat_provinsi);if(!province)return;
-  form.querySelector('[name="alamat_provinsi_id"]').value=province.id;setAddressLabel(form,'alamat_provinsi',province.name);
-  const regencies=await loadRegencies(form,province.id),regency=findRegion(regencies,values.alamat_kota_nama);if(!regency)return;
-  form.querySelector('[name="alamat_kota_id"]').value=regency.id;
-  const match=regency.name.match(/^(Kabupaten|Kota)\s+/i);
-  setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'Kabupaten');setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\s+/i,''));
-  const districts=await loadDistricts(form,regency.id),district=findRegion(districts,values.alamat_kecamatan);if(!district)return;
-  form.querySelector('[name="alamat_kecamatan_id"]').value=district.id;setAddressLabel(form,'alamat_kecamatan',district.name);
-  const villages=await loadVillages(form,district.id,values.alamat_desa||''),village=findRegion(villages,values.alamat_desa);
+  const provinceSelect=form.querySelector('[name="alamat_provinsi_id"]');
+  const regencySelect=form.querySelector('[name="alamat_kota_id"]');
+  const districtSelect=form.querySelector('[name="alamat_kecamatan_id"]');
+  const villageSelect=form.querySelector('[name="alamat_desa_id"]');
+  for(const select of [regencySelect,districtSelect,villageSelect])if(select)select.disabled=true;
+
+  const provinces=await loadProvinces(form);
+  const province=findRegion(provinces,values.alamat_provinsi);
+  if(!province){
+    await loadRegencies(form,'');
+    await loadDistricts(form,'');
+    await loadVillages(form,'');
+    return;
+  }
+  provinceSelect.value=province.id;
+  setAddressLabel(form,'alamat_provinsi',province.name);
+
+  const regencies=await loadRegencies(form,province.id);
+  const regency=findRegion(regencies,values.alamat_kota_nama);
+  if(!regency){
+    await loadDistricts(form,'');
+    await loadVillages(form,'');
+    return;
+  }
+  regencySelect.value=regency.id;
+  const cityMatch=regency.name.match(/^(Kabupaten|Kota)\\s+/i);
+  setAddressLabel(form,'alamat_kota_jenis',cityMatch?.[1]||'Kabupaten');
+  setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\\s+/i,''));
+
+  const districts=await loadDistricts(form,regency.id);
+  const district=findRegion(districts,values.alamat_kecamatan);
+  if(!district){
+    await loadVillages(form,'');
+    return;
+  }
+  districtSelect.value=district.id;
+  setAddressLabel(form,'alamat_kecamatan',district.name);
+
+  const villageSearch=String(values.alamat_desa||'').trim().replace(/[.,;]+$/,'');
+  let villages=await loadVillages(form,district.id,villageSearch);
+  let village=findRegion(villages,values.alamat_desa);
+  if(!village&&villageSearch.length>3){
+    villages=await loadVillages(form,district.id,villageSearch.slice(0,3));
+    village=findRegion(villages,values.alamat_desa);
+  }
   if(village){
-    form.querySelector('[name="alamat_desa_id"]').value=village.id;setAddressLabel(form,'alamat_desa',village.name);setAddressLabel(form,'alamat_wilayah_type',village.area_type);
+    villageSelect.value=village.id;
+    setAddressLabel(form,'alamat_desa',village.name);
+    setAddressLabel(form,'alamat_wilayah_type',village.area_type);
     const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:village.id});
     if(!error)form.querySelector('[name="alamat_kodepos"]').value=postal||'';
   }
