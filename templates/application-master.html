@@ -492,8 +492,8 @@
 <colgroup><col style="width:13%"/><col style="width:27%"/><col style="width:9%"/><col style="width:21%"/><col style="width:30%"/></colgroup>
 <thead><tr><th>Hubungan</th><th>Nama</th><th>Umur</th><th>Pendidikan</th><th>Pekerjaan</th></tr></thead>
 <tbody>
-<tr><td class="table-label">Ayah</td><td><input aria-label="Nama ayah" id="ayah_nama" name="ayah_nama"/></td><td><input aria-label="Umur ayah" id="ayah_umur" name="ayah_umur"/></td><td><input aria-label="Pendidikan ayah" id="ayah_pendidikan" name="ayah_pendidikan"/></td><td><input aria-label="Pekerjaan ayah" id="ayah_pekerjaan" name="ayah_pekerjaan"/></td></tr>
-<tr><td class="table-label">Ibu</td><td><input aria-label="Nama ibu" id="ibu_nama" name="ibu_nama"/></td><td><input aria-label="Umur ibu" id="ibu_umur" name="ibu_umur"/></td><td><input aria-label="Pendidikan ibu" id="ibu_pendidikan" name="ibu_pendidikan"/></td><td><input aria-label="Pekerjaan ibu" id="ibu_pekerjaan" name="ibu_pekerjaan"/></td></tr>
+<tr><td class="table-label">Ayah</td><td><input aria-label="Nama ayah" id="ayah_nama" name="ayah_nama"/></td><td><input aria-label="Umur ayah (0 jika meninggal)" id="ayah_umur" name="ayah_umur"/></td><td><input aria-label="Pendidikan ayah" id="ayah_pendidikan" name="ayah_pendidikan"/></td><td><input aria-label="Pekerjaan ayah" id="ayah_pekerjaan" name="ayah_pekerjaan"/></td></tr>
+<tr><td class="table-label">Ibu</td><td><input aria-label="Nama ibu" id="ibu_nama" name="ibu_nama"/></td><td><input aria-label="Umur ibu (0 jika meninggal)" id="ibu_umur" name="ibu_umur"/></td><td><input aria-label="Pendidikan ibu" id="ibu_pendidikan" name="ibu_pendidikan"/></td><td><input aria-label="Pekerjaan ibu" id="ibu_pekerjaan" name="ibu_pekerjaan"/></td></tr>
 </tbody>
 </table>
 <div class="subhead">2. Saudara kandung (termasuk pelamar)</div>
@@ -504,9 +504,10 @@
 <tr><td class="table-label">1</td><td><input aria-label="Nama saudara 1" id="saudara1_nama" name="saudara1_nama"/></td><td><input aria-label="Jenis kelamin saudara 1" id="saudara1_lp" name="saudara1_lp"/></td><td><input aria-label="Umur saudara 1" id="saudara1_umur" name="saudara1_umur"/></td><td><input aria-label="Pendidikan saudara 1" id="saudara1_pendidikan" name="saudara1_pendidikan"/></td><td><input aria-label="Pekerjaan saudara 1" id="saudara1_pekerjaan" name="saudara1_pekerjaan"/></td></tr>
 <tr><td class="table-label">2</td><td><input aria-label="Nama saudara 2" id="saudara2_nama" name="saudara2_nama"/></td><td><input aria-label="Jenis kelamin saudara 2" id="saudara2_lp" name="saudara2_lp"/></td><td><input aria-label="Umur saudara 2" id="saudara2_umur" name="saudara2_umur"/></td><td><input aria-label="Pendidikan saudara 2" id="saudara2_pendidikan" name="saudara2_pendidikan"/></td><td><input aria-label="Pekerjaan saudara 2" id="saudara2_pekerjaan" name="saudara2_pekerjaan"/></td></tr>
 <tr><td class="table-label">3</td><td><input aria-label="Nama saudara 3" id="saudara3_nama" name="saudara3_nama"/></td><td><input aria-label="Jenis kelamin saudara 3" id="saudara3_lp" name="saudara3_lp"/></td><td><input aria-label="Umur saudara 3" id="saudara3_umur" name="saudara3_umur"/></td><td><input aria-label="Pendidikan saudara 3" id="saudara3_pendidikan" name="saudara3_pendidikan"/></td><td><input aria-label="Pekerjaan saudara 3" id="saudara3_pekerjaan" name="saudara3_pekerjaan"/></td></tr>
+<tr><td class="table-label">4</td><td><input aria-label="Nama saudara 4" id="saudara4_nama" name="saudara4_nama"/></td><td><input aria-label="Jenis kelamin saudara 4" id="saudara4_lp" name="saudara4_lp"/></td><td><input aria-label="Umur saudara 4" id="saudara4_umur" name="saudara4_umur"/></td><td><input aria-label="Pendidikan saudara 4" id="saudara4_pendidikan" name="saudara4_pendidikan"/></td><td><input aria-label="Pekerjaan saudara 4" id="saudara4_pekerjaan" name="saudara4_pekerjaan"/></td></tr>
 </tbody>
 </table>
-<div class="subhead">3. Status perkawinan</div>
+<div class="subhead">3. Status Perkawinan Anda</div>
 <div class="inline-options">
 <label><input id="status_kawin_belum_kawin" name="status_kawin" type="radio" value="Belum kawin"/> Belum kawin</label>
 <label><input id="status_kawin_kawin" name="status_kawin" type="radio" value="Kawin"/> Kawin</label>
@@ -527,6 +528,7 @@
 </section>
 <section aria-labelledby="heading-c" class="section">
 <div class="section-title" id="heading-c"><span class="letter">C</span> PENDIDIKAN FORMAL</div>
+<div class="field wide"><label for="pendidikan_terakhir">Pendidikan Terakhir</label><input id="pendidikan_terakhir" name="pendidikan_terakhir"/></div>
 <table>
 <colgroup><col style="width:18%"/><col style="width:27%"/><col style="width:15%"/><col style="width:25%"/><col style="width:15%"/></colgroup>
 <thead><tr><th>Tingkat</th><th>Nama instansi</th><th>Kota</th><th>Jurusan</th><th>Tahun lulus</th></tr></thead>
@@ -571,8 +573,12 @@
 <div class="work-head"><span>PENGALAMAN KERJA 1</span><span class="muted">Terakhir</span></div>
 <div class="work-fields">
 <div class="field wide"><label>Nama perusahaan</label><input id="kerja1_perusahaan" name="kerja1_perusahaan"/></div>
-<div class="field"><label>Periode</label><input id="kerja1_periode" name="kerja1_periode"/></div>
-<div class="field"><label>Durasi</label><input id="kerja1_durasi" name="kerja1_durasi"/></div>
+<div class="field"><label>Mulai bulan</label><input id="kerja1_mulai_bulan" name="kerja1_mulai_bulan"/></div>
+<div class="field"><label>Mulai tahun</label><input id="kerja1_mulai_tahun" name="kerja1_mulai_tahun"/></div>
+<div class="field"><label>Sampai bulan</label><input id="kerja1_selesai_bulan" name="kerja1_selesai_bulan"/></div>
+<div class="field"><label>Sampai tahun</label><input id="kerja1_selesai_tahun" name="kerja1_selesai_tahun"/></div>
+<div class="field"><label>Durasi hasil perhitungan (bulan)</label><input id="kerja1_durasi" name="kerja1_durasi" readonly/></div>
+<div class="field"><label>Masih bekerja</label><input id="kerja1_masih_bekerja" name="kerja1_masih_bekerja" type="checkbox" value="true"/></div>
 <div class="field"><label>Jabatan</label><input id="kerja1_jabatan" name="kerja1_jabatan"/></div>
 <div class="field"><label>Jenis usaha</label><input id="kerja1_usaha" name="kerja1_usaha"/></div>
 <div class="field"><label>Jumlah karyawan</label><input id="kerja1_jumlah" name="kerja1_jumlah"/></div>
@@ -585,8 +591,12 @@
 <div class="work-head"><span>PENGALAMAN KERJA 2</span></div>
 <div class="work-fields">
 <div class="field wide"><label>Nama perusahaan</label><input id="kerja2_perusahaan" name="kerja2_perusahaan"/></div>
-<div class="field"><label>Periode</label><input id="kerja2_periode" name="kerja2_periode"/></div>
-<div class="field"><label>Durasi</label><input id="kerja2_durasi" name="kerja2_durasi"/></div>
+<div class="field"><label>Mulai bulan</label><input id="kerja2_mulai_bulan" name="kerja2_mulai_bulan"/></div>
+<div class="field"><label>Mulai tahun</label><input id="kerja2_mulai_tahun" name="kerja2_mulai_tahun"/></div>
+<div class="field"><label>Sampai bulan</label><input id="kerja2_selesai_bulan" name="kerja2_selesai_bulan"/></div>
+<div class="field"><label>Sampai tahun</label><input id="kerja2_selesai_tahun" name="kerja2_selesai_tahun"/></div>
+<div class="field"><label>Durasi hasil perhitungan (bulan)</label><input id="kerja2_durasi" name="kerja2_durasi" readonly/></div>
+<div class="field"><label>Masih bekerja</label><input id="kerja2_masih_bekerja" name="kerja2_masih_bekerja" type="checkbox" value="true"/></div>
 <div class="field"><label>Jabatan</label><input id="kerja2_jabatan" name="kerja2_jabatan"/></div>
 <div class="field"><label>Jenis usaha</label><input id="kerja2_usaha" name="kerja2_usaha"/></div>
 <div class="field"><label>Jumlah karyawan</label><input id="kerja2_jumlah" name="kerja2_jumlah"/></div>
@@ -599,8 +609,12 @@
 <div class="work-head"><span>PENGALAMAN KERJA 3</span></div>
 <div class="work-fields">
 <div class="field company-field"><label>Nama perusahaan</label><input id="kerja3_perusahaan" name="kerja3_perusahaan"/></div>
-<div class="field"><label>Periode</label><input id="kerja3_periode" name="kerja3_periode"/></div>
-<div class="field"><label>Durasi</label><input id="kerja3_durasi" name="kerja3_durasi"/></div>
+<div class="field"><label>Mulai bulan</label><input id="kerja3_mulai_bulan" name="kerja3_mulai_bulan"/></div>
+<div class="field"><label>Mulai tahun</label><input id="kerja3_mulai_tahun" name="kerja3_mulai_tahun"/></div>
+<div class="field"><label>Sampai bulan</label><input id="kerja3_selesai_bulan" name="kerja3_selesai_bulan"/></div>
+<div class="field"><label>Sampai tahun</label><input id="kerja3_selesai_tahun" name="kerja3_selesai_tahun"/></div>
+<div class="field"><label>Durasi hasil perhitungan (bulan)</label><input id="kerja3_durasi" name="kerja3_durasi" readonly/></div>
+<div class="field"><label>Masih bekerja</label><input id="kerja3_masih_bekerja" name="kerja3_masih_bekerja" type="checkbox" value="true"/></div>
 <div class="field"><label>Jabatan</label><input id="kerja3_jabatan" name="kerja3_jabatan"/></div>
 <div class="field"><label>Jenis usaha</label><input id="kerja3_usaha" name="kerja3_usaha"/></div>
 <div class="field"><label>Jumlah karyawan</label><input id="kerja3_jumlah" name="kerja3_jumlah"/></div>
@@ -620,13 +634,12 @@
 </div>
 </section>
 <section aria-labelledby="heading-h" class="section">
-<div class="section-title" id="heading-h"><span class="letter">H</span> REFERENSI</div>
+<div class="section-title" id="heading-h"><span class="letter">H</span> ORANG YANG BISA DIHUBUNGI DALAM KEADAAN DARURAT</div>
 <table>
-<colgroup><col style="width:6%"/><col style="width:19%"/><col style="width:24%"/><col style="width:15%"/><col style="width:19%"/><col style="width:17%"/></colgroup>
-<thead><tr><th>No.</th><th>Nama</th><th>Alamat</th><th>Telepon</th><th>Pekerjaan</th><th>Hubungan</th></tr></thead>
+<colgroup><col style="width:22%"/><col style="width:28%"/><col style="width:22%"/><col style="width:28%"/></colgroup>
 <tbody>
-<tr><td class="table-label">1</td><td><input aria-label="Nama referensi 1" id="referensi1_nama" name="referensi1_nama"/></td><td><input aria-label="Alamat referensi 1" id="referensi1_alamat" name="referensi1_alamat"/></td><td><input aria-label="Telepon referensi 1" id="referensi1_telepon" name="referensi1_telepon"/></td><td><input aria-label="Pekerjaan referensi 1" id="referensi1_pekerjaan" name="referensi1_pekerjaan"/></td><td><input aria-label="Hubungan referensi 1" id="referensi1_hubungan" name="referensi1_hubungan"/></td></tr>
-<tr><td class="table-label">2</td><td><input aria-label="Nama referensi 2" id="referensi2_nama" name="referensi2_nama"/></td><td><input aria-label="Alamat referensi 2" id="referensi2_alamat" name="referensi2_alamat"/></td><td><input aria-label="Telepon referensi 2" id="referensi2_telepon" name="referensi2_telepon"/></td><td><input aria-label="Pekerjaan referensi 2" id="referensi2_pekerjaan" name="referensi2_pekerjaan"/></td><td><input aria-label="Hubungan referensi 2" id="referensi2_hubungan" name="referensi2_hubungan"/></td></tr>
+<tr><td class="table-label">Nama lengkap</td><td><input id="kontak_darurat_nama" name="kontak_darurat_nama"/></td><td class="table-label">Hubungan</td><td><input id="kontak_darurat_hubungan" name="kontak_darurat_hubungan"/></td></tr>
+<tr><td class="table-label">Telepon / WhatsApp</td><td><input id="kontak_darurat_telepon" name="kontak_darurat_telepon"/></td><td class="table-label">Alamat</td><td><input id="kontak_darurat_alamat" name="kontak_darurat_alamat"/></td></tr>
 </tbody>
 </table>
 </section>

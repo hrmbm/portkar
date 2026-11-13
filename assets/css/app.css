@@ -182,3 +182,12 @@
   .form-field.wide{grid-column:auto}
   .form-grid .form-field:has(select[name="gender"]),.form-grid .form-field:has(input[name="alamat_rt"]),.form-grid .form-field:has(input[name="alamat_rw"]){grid-column:auto}
 }
+
+/* Private candidate KTP preview in HR console */
+.ktp-viewer-backdrop{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:18px;background:rgba(12,22,38,.72)}
+.ktp-viewer-backdrop.hidden{display:none}
+.ktp-viewer-card{width:min(720px,100%);max-height:min(92vh,900px);overflow:auto;padding:16px;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(0,0,0,.3)}
+.ktp-viewer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;color:#1f2d43;font-size:14px}
+.ktp-viewer-head button{width:34px;height:34px;border:0;border-radius:9px;background:#edf1f6;color:#23354f;font-size:22px;cursor:pointer}
+.ktp-viewer-card img{display:block;width:100%;height:auto;max-height:72vh;object-fit:contain;border-radius:10px;background:#eef1f5}
+.ktp-viewer-card p{margin:10px 0 0;color:#778397;font-size:11px;line-height:1.5}

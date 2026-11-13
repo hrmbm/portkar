@@ -8,3 +8,7 @@ export const MAX_CV_BYTES = 10 * 1024 * 1024;
 export const CV_BUCKET = 'candidate-files';
 export const CV_PATH_PREFIX = 'candidate-cv';
 export const TEMPLATE_URL = './templates/application-master.html';
+
+export const MAX_KTP_BYTES = 8 * 1024 * 1024;
+export const KTP_BUCKET = 'candidate-identity';
+export const KTP_PATH_PREFIX = 'candidate-identity';

@@ -82,11 +82,41 @@ function applicantRows(rows, action = 'print') {
       <td>${esc(applicant.position || '—')}</td><td>${fmtAge(applicant)}</td><td>${statusPill(applicant.stage)}</td>
       ${action === 'both' ? `<td>${esc(pattern)}</td>` : ''}
       <td><div class="row-actions">
+        ${applicant.ktp_path ? `<button class="icon-btn" data-ktp="${esc(applicant.id)}">Lihat KTP</button>` : ''}
         ${action === 'both' && !employee ? `<button class="icon-btn" data-hire="${esc(applicant.id)}">Jadikan karyawan</button>` : ''}
         <button class="icon-btn" data-print="${esc(applicant.id)}">${printLabel}</button>
       </div></td>
     </tr>`;
   }).join('');
+}
+
+
+function ktpViewer(){
+  let modal=$('#ktp-viewer');
+  if(modal)return modal;
+  modal=document.createElement('div');
+  modal.id='ktp-viewer';
+  modal.className='ktp-viewer-backdrop hidden';
+  modal.innerHTML='<section class="ktp-viewer-card" role="dialog" aria-modal="true" aria-label="Foto KTP kandidat"><div class="ktp-viewer-head"><b>Verifikasi foto KTP</b><button type="button" id="ktp-viewer-close" aria-label="Tutup">×</button></div><img id="ktp-viewer-image" alt="Foto KTP kandidat"><p>URL privat akan kedaluwarsa otomatis. Jangan bagikan tautan ini kepada pihak lain.</p></section>';
+  document.body.append(modal);
+  const close=()=>{modal.classList.add('hidden');$('#ktp-viewer-image',modal).removeAttribute('src');};
+  $('#ktp-viewer-close',modal).addEventListener('click',close);
+  modal.addEventListener('click',event=>{if(event.target===modal)close();});
+  return modal;
+}
+function bindKtp(){
+  $$('[data-ktp]').forEach(button=>button.addEventListener('click',async()=>{
+    const applicant=applicants.find(row=>row.id===button.dataset.ktp);
+    if(!applicant?.ktp_path)return;
+    const old=button.textContent;button.disabled=true;button.textContent='Membuka…';
+    try{
+      const {data,error}=await supabase.storage.from('candidate-identity').createSignedUrl(applicant.ktp_path,180);
+      if(error)throw error;
+      const modal=ktpViewer(),img=$('#ktp-viewer-image',modal);
+      img.src=data.signedUrl;modal.classList.remove('hidden');
+    }catch(error){say(error.message||'Foto KTP tidak dapat dibuka.');}
+    finally{button.disabled=false;button.textContent=old;}
+  }));
 }
 
 function bindSearch(selector, rerender) {
@@ -98,7 +128,7 @@ function bindSearch(selector, rerender) {
 async function refreshData() {
   const [candidateResult, employeeResult] = await Promise.all([
     supabase.from('applicants')
-      .select('id,access_token,full_name,nik,position,stage,application_data,cv_path,created_at,disc_submissions(id,answers,completed_at),employees(id)')
+      .select('id,access_token,full_name,nik,position,stage,application_data,cv_path,ktp_path,created_at,disc_submissions(id,answers,completed_at),employees(id)')
       .order('created_at', { ascending: false }).limit(1000),
     supabase.from('employees')
       .select('id,applicant_id,employee_no,department,position,employment_status,join_date,notes,created_at,updated_at')
@@ -143,7 +173,7 @@ function renderDashboard() {
     <section class="panel table-panel"><div class="panel-head"><div><h3>Kandidat terbaru</h3><p>Entri paling baru</p></div><button class="btn btn-secondary" id="refresh-dashboard">Muat ulang ↻</button></div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th>KANDIDAT</th><th>POSISI</th><th>USIA</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>${applicantRows(applicants.slice(0, 7), 'print')}</tbody></table></div>
     </section>`;
-  bindPrint();
+  bindPrint(); bindKtp();
   $('#refresh-dashboard')?.addEventListener('click', () => loadView('dashboard'));
 }
 
@@ -156,9 +186,9 @@ function renderStage2() {
     </table></div></section>`;
   bindSearch('#table-search', query => {
     $('#candidate-rows').innerHTML = applicantRows(rows.filter(a => `${a.full_name} ${a.nik} ${a.position}`.toLocaleLowerCase('id').includes(query)), 'print');
-    bindPrint();
+    bindPrint(); bindKtp();
   });
-  bindPrint();
+  bindPrint(); bindKtp();
 }
 
 function renderStage3() {
@@ -170,10 +200,10 @@ function renderStage3() {
     </table></div></section>`;
   const repaint = query => {
     $('#candidate-rows').innerHTML = applicantRows(rows.filter(a => `${a.full_name} ${a.nik} ${a.position}`.toLocaleLowerCase('id').includes(query)), 'both');
-    bindPrint(); bindHire();
+    bindPrint(); bindHire(); bindKtp();
   };
   bindSearch('#table-search', repaint);
-  bindPrint(); bindHire();
+  bindPrint(); bindHire(); bindKtp();
 }
 
 function employeeRows(rows) {

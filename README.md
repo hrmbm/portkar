@@ -17,32 +17,47 @@ Portal rekrutmen untuk GitHub Pages (frontend statis) dan Supabase (database, st
 
 ### Kandidat — mobile
 - `/apply/` tahap 1 placeholder.
-- `/form/` formulir lamaran kerja, OCR kamera langsung dengan bingkai KTP, draft lokal + Supabase, upload CV PDF.
+- `/form/` formulir lamaran kerja, foto KTP tersimpan privat, OCR (server opsional + fallback Tesseract.js), dropdown alamat berjenjang, draft lokal + Supabase, upload CV PDF.
 - `/disc/` tes DISC 24 kelompok, tanpa token pada URL; sesi disimpan pada browser kandidat.
 - `/spm/` tahap IQ/SPM placeholder.
-- Form menggunakan dropdown, field kondisional, susunan alamat KTP terstruktur, dan angka Rupiah dengan titik ribuan.
+- Form menggunakan dropdown, field kondisional, susunan alamat KTP terstruktur, pilihan pendidikan berdasarkan pendidikan terakhir, dan angka Rupiah dengan titik ribuan.
+- Master wilayah disimpan di Supabase: 38 provinsi, 514 kabupaten/kota, 7.285 kecamatan, 83.762 desa/kelurahan dan kode pos. Browser hanya mengambil anak dari parent terpilih; daftar desa dibatasi 30 hasil dan pencarian memakai prefix.
 
 ### Backend
 - Database kandidat, draft, hasil DISC, karyawan, admin, dan versi master cetak.
-- Private Storage bucket CV, batas 10 MB, PDF.
-- RPC kandidat untuk menyimpan draft, submit lamaran, membaca status kandidat, dan mengirim DISC.
+- Private Storage bucket CV (PDF maks. 10 MB) dan KTP (JPG/PNG/WebP maks. 8 MB).
+- RPC kandidat untuk menyimpan draft, submit lamaran (validasi objek CV/KTP), membaca status kandidat, mengirim DISC, dan mengambil wilayah/kode pos secara berjenjang.
 - RLS untuk data HR/admin.
 - Login admin username + PIN, hash bcrypt, lockout setelah 5 percobaan salah selama 15 menit.
 - Supabase Auth session dibuat otomatis pada login pertama oleh Edge Function. Tidak perlu membuat akun Auth atau UUID admin secara manual.
+
+## Peningkatan form kandidat
+
+Perubahan database terbaru diterapkan melalui migration berikut (bukan dengan menjalankan ulang `SETUP-ALL-IN-ONE.sql` pada project yang sudah berjalan):
+
+- `supabase/migrations/20261113122500_form_ocr_regions.sql`
+- `supabase/migrations/20261113124500_experience_duration.sql`
+- `supabase/migrations/20261113130500_private_ktp_helper.sql`
+- `supabase/migrations/20261113133000_region_rls_and_private_storage_helpers.sql`
+- `supabase/migrations/20261113134000_revoke_internal_admin_helper_rpc.sql`
+
+Data referensi wilayah telah diimpor ke tabel `regions_provinces`, `regions_regencies`, `regions_districts`, dan `regions_villages`. RPC wilayah tersedia melalui `list_region_provinces`, `list_region_regencies`, `list_region_districts`, `list_region_villages`, dan `get_region_postal_code`.
 
 ## Mulai cepat — urutan pemasangan
 
 1. Ekstrak ZIP di komputer (klik kanan → Extract All).
 2. Buat project baru di Supabase Dashboard.
-3. Jalankan **satu file SQL saja**: `supabase/SETUP-ALL-IN-ONE.sql` melalui Supabase → SQL Editor. Sebelum Run, ubah `v_pin` dari `GANTI_PIN_6_ANGKA` menjadi PIN Anda. Username awal adalah `Admin`, dan SQL otomatis menyimpannya sebagai `admin`. Anda boleh mengubah nilai `v_username` dan `v_display_name`.
-4. Buat Edge Function `admin-login` melalui Dashboard → Edge Functions → Deploy a new function → Via Editor. Salin seluruh isi `supabase/functions/admin-login/index.ts` ke editor lalu Deploy.
-5. Buka fungsi `admin-login` → Details, lalu matikan **Verify JWT / Enforce JWT Verification**. Endpoint login dipanggil sebelum admin mempunyai sesi. Fungsi tetap memverifikasi publishable key aplikasi, PIN bcrypt, dan lockout di database.
-6. Pastikan Authentication → Sign In / Providers → Email dalam keadaan aktif. Ini hanya dipakai internal untuk membuat sesi Supabase; admin tetap login di portal menggunakan username + PIN.
-7. Buka Project Settings → API Keys, salin Project URL dan **Publishable key** (`sb_publishable_...`) ke `assets/js/config.js`.
-8. Upload seluruh isi folder proyek ini ke root repository GitHub menggunakan tombol Add file → Upload files. Aktifkan Settings → Pages → Deploy from a branch → `main` → `/ (root)`.
-9. Buka URL Pages di desktop dan login dengan username/PIN yang dibuat pada langkah 3. Uji kandidat melalui `/form/` di ponsel.
+3. Jalankan `supabase/SETUP-ALL-IN-ONE.sql` **satu kali** melalui Supabase → SQL Editor. Sebelum Run, ubah `v_pin` dari `GANTI_PIN_6_ANGKA` menjadi PIN Anda. Username awal adalah `Admin`, dan SQL otomatis menyimpannya sebagai `admin`.
+4. Jalankan seluruh file di `supabase/migrations/` **urut berdasarkan nama file** (tanggal paling awal ke paling akhir). Jangan menjalankan ulang migration pada project yang sudah menerapkannya. Migration ini menambah foto KTP, tabel wilayah/RPC, kebijakan Storage privat, dan perhitungan pengalaman kerja.
+5. Isi tabel wilayah dengan mengikuti [panduan impor wilayah](docs/IMPORT-WILAYAH.md). Import CSV dilakukan parent ke child: provinsi → kabupaten/kota → kecamatan → desa/kelurahan.
+6. Buat Edge Function `admin-login` melalui Dashboard → Edge Functions → Deploy a new function → Via Editor. Salin `supabase/functions/admin-login/index.ts` lalu Deploy. Di Details matikan **Verify JWT / Enforce JWT Verification** karena endpoint login dipanggil sebelum admin memiliki sesi.
+7. Buat Edge Function `ktp-ocr` dengan cara yang sama, menggunakan `supabase/functions/ktp-ocr/index.ts`. Matikan **Verify JWT / Enforce JWT Verification**. Proxy memvalidasi batas ukuran/jenis berkas dan meneruskan permintaan ke server OCR dengan API key yang hanya disimpan sebagai secret.
+8. Untuk OCR server, jalankan container pada mesin/hosting yang mendukung Docker dan HTTPS. Ikuti [panduan OCR service](services/ktp-ocr/README.md), lalu atur Supabase → Edge Functions → Secrets: `KTP_OCR_API_URL` (URL HTTPS service) dan `KTP_OCR_API_KEY` (secret yang sama dengan container). Tanpa server/secrets ini, form tetap memakai Tesseract.js di browser sebagai OCR gratis cadangan.
+9. Pastikan Authentication → Sign In / Providers → Email aktif. Ini hanya digunakan internal untuk membuat sesi Supabase; admin tetap login dengan username + PIN.
+10. Buka Project Settings → API Keys, salin Project URL dan **Publishable key** (`sb_publishable_...`) ke `assets/js/config.js`. Jangan pernah memasukkan Secret/service_role key ke frontend.
+11. Upload isi proyek ke root repository GitHub dan aktifkan Settings → Pages → Deploy from a branch → `main` → `/ (root)`. Setelah perubahan form direview dan digabung ke `main`, uji `/form/` melalui ponsel.
 
-**Jangan jalankan file SQL lama per tahap.** File `SETUP-ALL-IN-ONE.sql` sudah berisi seluruh skema inti, autosave mobile, HR console, private CV storage, DISC, template cetak, dan username/PIN admin.
+`SETUP-ALL-IN-ONE.sql` adalah setup inti project baru. Folder `supabase/migrations/` berisi perubahan lanjutan yang harus dijalankan setelah setup inti; jangan menjalankan ulang setup inti pada project yang sudah berisi data kandidat.
 
 ## Konfigurasi frontend
 
@@ -69,11 +84,15 @@ Path mengikuti alamat repository GitHub Pages. Jika URL website adalah `https://
 
 ## Catatan penting penggunaan
 
-- OCR KTP berjalan di browser. Foto KTP tidak disimpan di database atau Storage. Kandidat tetap perlu memeriksa hasil baca karena akurasi dipengaruhi kamera, fokus, pantulan cahaya, dan kondisi kartu.
+- Foto KTP diunggah ke bucket privat `candidate-identity` sebelum OCR, dan `applicants.ktp_path` menyimpan path untuk pemeriksaan HR. HR membuka foto melalui signed URL yang berlaku singkat.
+- OCR mencoba Edge Function `ktp-ocr` (proxy ke server OCR Python) lalu fallback Tesseract.js di browser. Maksimal tiga percobaan foto; setelah tiga kegagalan, kandidat dapat melanjutkan manual sementara foto tetap dipertahankan. Kandidat tetap wajib memeriksa seluruh hasil OCR.
+- Edge Function `ktp-ocr` aktif, tetapi server OCR Python adalah service terpisah yang perlu dijalankan pada hosting/mesin sendiri. Lihat `services/ktp-ocr/README.md`. Tambahkan secrets `KTP_OCR_API_URL` (URL HTTPS service OCR) dan `KTP_OCR_API_KEY` (secret yang sama dengan container) pada Supabase → Edge Functions → Secrets. Tanpa secrets/service yang aktif, aplikasi tetap memakai OCR browser gratis.
 - Draft tersimpan di perangkat yang sama dan Supabase. Draft lokal bisa dipulihkan setelah reload selama browser/site data tidak dihapus. Draft tidak otomatis berpindah ke perangkat lain.
 - Token kandidat tidak ditampilkan di URL. `/disc/` membaca token sesi yang tersimpan pada browser yang sama. Kandidat sebaiknya melanjutkan proses di perangkat/browser tempat formulir dikirim.
-- CV disimpan pada bucket privat `candidate-files`; PDF maksimum 10 MB.
-- Master HTML cetak harus mempertahankan atribut `name` dan `id="applicationForm"` agar data lama tetap bisa dicetak. Perubahan CSS, warna, logo, header, layout, dan ukuran kertas boleh dilakukan.
+- CV disimpan pada bucket privat `candidate-files`; PDF maksimum 10 MB. Foto KTP ada pada bucket privat `candidate-identity`; maksimum 8 MB.
+- Periode pengalaman kerja diisi bulan/tahun mulai dan selesai; durasi bulan dihitung backend saat lamaran dikirim. Jika masih bekerja, backend memakai bulan berjalan.
+- Master HTML cetak harus mempertahankan atribut `name` dan `id="applicationForm"` agar data lama tetap bisa dicetak. Template bawaan sudah disesuaikan dengan field baru. Perubahan CSS, warna, logo, header, layout, dan ukuran kertas boleh dilakukan.
+- Master wilayah yang dipasang berasal dari [awanaprilino/wilayah-administrasi-kemendagri](https://github.com/awanaprilino/wilayah-administrasi-kemendagri), berbasis Kepmendagri 300.2.2-2138 Tahun 2025. Validasi dan perbarui data terhadap rilis resmi Kemendagri terbaru secara berkala; kode pos perlu diverifikasi bila ada pemekaran/perubahan.
 - Data KTP, NIK, keluarga, dan lamaran adalah data pribadi. Batasi akses admin, jangan menyebarkan file ekspor kepada pihak yang tidak berwenang, dan tetapkan retensi data internal.
 
 ## Pemecahan masalah
@@ -99,6 +118,11 @@ Path mengikuti alamat repository GitHub Pages. Jika URL website adalah `https://
 - `assets/js/disc-engine.js` — mesin hitung dari Code.gs DISC.
 - `assets/js/applicant.js` — alur formulir dan draft.
 - `assets/js/ktp-ocr.js` — parser OCR KTP.
+- `supabase/functions/ktp-ocr/index.ts` — proxy aman ke service OCR server.
+- `supabase/migrations/20261113122500_form_ocr_regions.sql` — tabel wilayah, RPC dropdown, private KTP bucket dan validasi file.
+- `supabase/migrations/20261113124500_experience_duration.sql` — perhitungan durasi pengalaman kerja backend.
+- `services/ktp-ocr/` — Dockerfile, Compose dan panduan menjalankan arakattack/ocr-ktp.
+- `docs/IMPORT-WILAYAH.md` — panduan import CSV wilayah untuk project Supabase baru.
 - `assets/js/admin.js` — dashboard HR.
 - `assets/js/print.js` — cetak Lamaran → CV → DISC dan master HTML.
 - `supabase/SETUP-ALL-IN-ONE.sql` — satu-satunya setup database untuk project baru.
