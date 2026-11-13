@@ -24,21 +24,21 @@ const personalFields = [
   {name:'email',label:'Email',type:'email'}
 ];
 const addressFields = [
-  {name:'alamat_tipe',label:'Jenis alamat',type:'select',options:choices(['Jalan','Dusun','Kampung','Perumahan','Komplek','Lingkungan','Gang','Lorong','Blok','Apartemen','Lainnya']),wide:false},
+  {name:'alamat_tipe',label:'Jenis alamat',type:'select',options:choices(['Jalan','Dusun','Kampung','Perumahan','Komplek','Lingkungan','Gang','Lorong','Blok','Apartemen','Lainnya'])},
   {name:'alamat_jalan',label:'Nama jalan / dusun / perumahan',wide:true,required:true},
   {name:'alamat_rt',label:'RT',inputmode:'numeric',maxlength:3,required:true},
   {name:'alamat_rw',label:'RW',inputmode:'numeric',maxlength:3,required:true},
   {name:'alamat_desa',label:'Desa / kelurahan',required:true},
   {name:'alamat_kecamatan',label:'Kecamatan',required:true},
-  {name:'alamat_kota_jenis',label:'Kabupaten / kota',type:'select',options:choices(['Kabupaten','Kota']),required:true},
-  {name:'alamat_kota_nama',label:'Nama kabupaten / kota',required:true},
-  {name:'alamat_provinsi',label:'Provinsi',type:'select',options:provinceChoices,required:true},
-  {name:'alamat_kodepos',label:'Kode pos',inputmode:'numeric',maxlength:5}
+  {name:'alamat_kota_jenis',label:'Jenis kabupaten / kota'},
+  {name:'alamat_kota_nama',label:'Kabupaten / kota',required:true},
+  {name:'alamat_provinsi',label:'Provinsi',required:true},
+  {name:'alamat_kodepos',label:'Kode pos'}
 ];
 const parentFields = [
-  {name:'ayah_nama',label:'Nama ayah'}, {name:'ayah_umur',label:'Umur ayah',type:'number',min:18,max:120},
+  {name:'ayah_nama',label:'Nama ayah'}, {name:'ayah_umur',label:'Umur ayah (isi 0 jika meninggal)',type:'number',min:0,max:120},
   {name:'ayah_pendidikan',label:'Pendidikan ayah',type:'select',options:educationChoices}, {name:'ayah_pekerjaan',label:'Pekerjaan ayah'},
-  {name:'ibu_nama',label:'Nama ibu'}, {name:'ibu_umur',label:'Umur ibu',type:'number',min:18,max:120},
+  {name:'ibu_nama',label:'Nama ibu'}, {name:'ibu_umur',label:'Umur ibu (isi 0 jika meninggal)',type:'number',min:0,max:120},
   {name:'ibu_pendidikan',label:'Pendidikan ibu',type:'select',options:educationChoices}, {name:'ibu_pekerjaan',label:'Pekerjaan ibu'}
 ];
 const maritalField = {name:'status_kawin',label:'Status perkawinan',type:'select',options:choices(['Belum kawin','Kawin','Cerai hidup','Cerai mati']),required:true};
@@ -56,8 +56,16 @@ const educationRows = [
   {prefix:'diploma',title:'Diploma (D1–D4)',fields:[['instansi','Nama instansi'],['kota','Kota'],['jurusan','Jurusan'],['lulus','Tahun lulus','year']]},
   {prefix:'universitas',title:'Universitas (S1/S2/S3)',fields:[['instansi','Nama universitas'],['kota','Kota'],['jurusan','Jurusan'],['lulus','Tahun lulus','year']]}
 ];
-const workKeys = [['perusahaan','Nama perusahaan'],['periode','Periode kerja'],['durasi','Durasi (bulan)','number'],['jabatan','Jabatan'],['usaha','Jenis usaha'],['jumlah','Jumlah karyawan','number'],['atasan','Nama atasan langsung'],['gaji','Gaji terakhir (Rp)','currency'],['alasan','Alasan berhenti']];
-const refKeys = [['nama','Nama'],['alamat','Alamat'],['telepon','Telepon'],['pekerjaan','Pekerjaan'],['hubungan','Hubungan']];
+const workKeys = [
+  ['perusahaan','Nama perusahaan'],['jabatan','Jabatan'],['usaha','Jenis usaha'],
+  ['mulai_bulan','Mulai bulan','month'],['mulai_tahun','Mulai tahun','year'],
+  ['selesai_bulan','Sampai bulan','month'],['selesai_tahun','Sampai tahun','year'],
+  ['masih_bekerja','Masih bekerja di sini','checkbox'],['jumlah','Jumlah karyawan','number'],
+  ['atasan','Nama atasan langsung'],['gaji','Gaji terakhir (Rp)','currency'],['alasan','Alasan berhenti']
+];
+const refKeys = [
+  ['nama','Nama lengkap'],['hubungan','Hubungan'],['telepon','No. telepon / WhatsApp'],['alamat','Alamat']
+];
 const stepNames = ['Identitas','Keluarga & pendidikan','Kemampuan & pengalaman','Informasi tambahan','Lampiran'];
 const LOCAL_DRAFT_PREFIX = 'portal_candidate_draft_v3:';
 const LEGACY_LOCAL_DRAFT_PREFIX = 'portal_candidate_draft_v2:';
@@ -109,59 +117,114 @@ function countSelect(name,label,max,value,min=0){
 }
 function renderAddress(values={}){
   const different=String(values.domisili_berbeda||'false')==='true' || (!!values.domisili && !!values.alamat_asal && values.domisili!==values.alamat_asal);
-  return sectionHtml('⌖','ALAMAT SESUAI KTP',`${basicGrid(addressFields,values)}<input type="hidden" name="alamat_asal" value="${esc(values.alamat_asal||'')}"><div class="address-preview" id="address-preview"></div><label class="inline-toggle"><input type="checkbox" name="domisili_berbeda" value="true" ${different?'checked':''}><span>Alamat domisili berbeda</span></label><div class="conditional-fields" data-conditional="true" data-block="domicile" ${different?'':'hidden'}>${basicGrid([{name:'domisili',label:'Alamat domisili',type:'textarea',wide:true}],values)}</div>`);
+  const regionSelect=(name,label,disabled=false)=>fieldHtml({name,label,type:'select',options:[],required:true},values)+`<!--region-->`;
+  return sectionHtml('⌖','ALAMAT SESUAI KTP',`
+    <div class="form-grid">
+      ${fieldHtml({name:'alamat_provinsi_id',label:'Provinsi',type:'select',options:[],required:true},values)}
+      ${fieldHtml({name:'alamat_kota_id',label:'Kabupaten / Kota',type:'select',options:[],required:true},values)}
+      ${fieldHtml({name:'alamat_kecamatan_id',label:'Kecamatan',type:'select',options:[],required:true},values)}
+      <div class="form-field"><label for="f-alamat_desa_search">Cari desa / kelurahan</label><input id="f-alamat_desa_search" name="alamat_desa_search" type="search" placeholder="Ketik nama desa / kelurahan" autocomplete="off"></div>
+      ${fieldHtml({name:'alamat_desa_id',label:'Desa / Kelurahan',type:'select',options:[],required:true},values)}
+      ${fieldHtml({name:'alamat_tipe',label:'Jenis alamat',type:'select',options:addressFields[0].options},values)}
+      ${fieldHtml({name:'alamat_jalan',label:'Nama jalan / dusun / perumahan',wide:true,required:true},values)}
+      ${fieldHtml({name:'alamat_rt',label:'RT',inputmode:'numeric',maxlength:3,required:true},values)}
+      ${fieldHtml({name:'alamat_rw',label:'RW',inputmode:'numeric',maxlength:3,required:true},values)}
+      ${fieldHtml({name:'alamat_kodepos',label:'Kode pos (otomatis)',readonly:true},values)}
+    </div>
+    <input type="hidden" name="alamat_provinsi" value="${esc(values.alamat_provinsi||'')}">
+    <input type="hidden" name="alamat_kota_jenis" value="${esc(values.alamat_kota_jenis||'')}">
+    <input type="hidden" name="alamat_kota_nama" value="${esc(values.alamat_kota_nama||'')}">
+    <input type="hidden" name="alamat_kecamatan" value="${esc(values.alamat_kecamatan||'')}">
+    <input type="hidden" name="alamat_desa" value="${esc(values.alamat_desa||'')}">
+    <input type="hidden" name="alamat_wilayah_type" value="${esc(values.alamat_wilayah_type||'')}">
+    <input type="hidden" name="alamat_asal" value="${esc(values.alamat_asal||'')}">
+    <div class="address-preview" id="address-preview"></div>
+    <label class="inline-toggle"><input type="checkbox" name="domisili_berbeda" value="true" ${different?'checked':''}><span>Alamat domisili berbeda</span></label>
+    <div class="conditional-fields" data-conditional="true" data-block="domicile" ${different?'':'hidden'}>${basicGrid([{name:'domisili',label:'Alamat domisili',type:'textarea',wide:true}],values)}</div>
+  `);
 }
 function renderFamily(values={}){
-  const sibCount=Math.min(3,Math.max(1,Number(values.saudara_count||1)));
-  const siblings=Array.from({length:sibCount},(_,i)=>{
-    const n=i+1,p=`saudara${n}_`;
-    const fs=n===1
-      ? [{name:'saudara1_nama',label:'Nama',readonly:true},{name:'saudara1_lp',label:'Jenis kelamin',readonly:true},{name:'saudara1_umur',label:'Umur',readonly:true},{name:'saudara1_pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:'saudara1_pekerjaan',label:'Pekerjaan'}]
-      : [{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:120},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
-    const rowValues={...values,saudara1_nama:values.nama||values.saudara1_nama||'',saudara1_lp:values.gender||values.saudara1_lp||'',saudara1_umur:ageFrom(values.tanggal_lahir)||values.saudara1_umur||''};
-    return `<div class="repeat-row"><div class="repeat-title">${n===1?'Anda':`Saudara ${n-1}`}</div>${basicGrid(fs,rowValues)}</div>`;
+  const siblingCountValue=String(values.saudara_count??'0');
+  const siblingCount=siblingCountValue==='3+'?3:Math.min(3,Math.max(0,Number(siblingCountValue)||0));
+  const selfRow=`<div class="repeat-row"><div class="repeat-title">Anda (otomatis)</div>${basicGrid([
+    {name:'saudara1_nama',label:'Nama',readonly:true},
+    {name:'saudara1_lp',label:'Jenis kelamin',readonly:true},
+    {name:'saudara1_umur',label:'Umur',readonly:true},
+    {name:'saudara1_pendidikan',label:'Pendidikan',type:'select',options:educationChoices},
+    {name:'saudara1_pekerjaan',label:'Pekerjaan'}
+  ],{...values,saudara1_nama:values.nama||'',saudara1_lp:values.gender==='L'?'Laki-laki':values.gender==='P'?'Perempuan':'',saudara1_umur:ageFrom(values.tanggal_lahir)||''})}</div>`;
+  const siblings=Array.from({length:siblingCount},(_,i)=>{
+    const n=i+2,p=`saudara${n}_`;
+    const fs=[{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:120},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
+    return `<div class="repeat-row"><div class="repeat-title">Saudara ${i+1}</div>${basicGrid(fs,values)}</div>`;
   }).join('');
   const childrenCount=Math.min(3,Math.max(0,Number(values.anak_count||0)));
   const children=Array.from({length:childrenCount},(_,i)=>{
-    const n=i+1,p=`anak${n}_`;
-    const fs=[{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:100},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
+    const n=i+1,p=`anak${n}_`,fs=[{name:p+'nama',label:'Nama'},{name:p+'lp',label:'Jenis kelamin',type:'select',options:choices(['Laki-laki','Perempuan'])},{name:p+'umur',label:'Umur',type:'number',min:0,max:100},{name:p+'pendidikan',label:'Pendidikan',type:'select',options:educationChoices},{name:p+'pekerjaan',label:'Pekerjaan'}];
     return `<div class="repeat-row"><div class="repeat-title">Anak ${n}</div>${basicGrid(fs,values)}</div>`;
   }).join('');
   const spouseHidden=values.status_kawin==='Kawin'?'':'hidden';
   const childrenHidden=!values.status_kawin||values.status_kawin==='Belum kawin'?'hidden':'';
+  const siblingOptions=choices(['0','1','2','3+'].map(v=>v==='3+'?'3 atau lebih':v));
   return sectionHtml('B','SUSUNAN KELUARGA',
-    `<div class="repeat-title">Orang tua</div>${basicGrid(parentFields,values)}<div class="repeat-row"><div class="repeat-title">Saudara kandung · termasuk Anda</div>${countSelect('saudara_count','Jumlah saudara kandung',3,sibCount,1)}<div id="siblings-rows">${siblings}</div></div><div class="repeat-row"><div class="repeat-title">Status perkawinan</div>${basicGrid([maritalField],values)}</div><div class="conditional-fields" data-conditional="true" data-block="spouse" ${spouseHidden}><div class="repeat-title">Suami / istri</div>${basicGrid(spouseFields,values)}</div><div class="conditional-fields" data-conditional="true" data-block="children" ${childrenHidden}><div class="repeat-title">Anak</div>${countSelect('anak_count','Jumlah anak',3,childrenCount,0)}<div id="children-rows">${children}</div></div>`);
+    `<div class="repeat-title">Orang tua</div>${basicGrid(parentFields,values)}
+    <div class="repeat-row"><div class="repeat-title">Saudara kandung · termasuk Anda</div>
+      ${fieldHtml({name:'saudara_count',label:'Jumlah saudara kandung selain Anda',type:'select',options:[{value:'0',label:'0'},{value:'1',label:'1'},{value:'2',label:'2'},{value:'3+',label:'3 atau lebih'}]},values)}
+      <div id="siblings-rows">${selfRow}${siblings}</div>
+    </div>
+    <div class="repeat-row"><div class="repeat-title">Status Perkawinan Anda</div>${basicGrid([maritalField],values)}</div>
+    <div class="conditional-fields" data-conditional="true" data-block="spouse" ${spouseHidden}><div class="repeat-title">Suami / istri</div>${basicGrid(spouseFields,values)}</div>
+    <div class="conditional-fields" data-conditional="true" data-block="children" ${childrenHidden}><div class="repeat-title">Anak</div>${countSelect('anak_count','Jumlah anak',3,childrenCount,0)}<div id="children-rows">${children}</div></div>`);
 }
 function renderEducation(values={}){
-  return sectionHtml('C','PENDIDIKAN FORMAL',educationRows.map(row=>{
-    const fields=row.fields.map(([key,label,type])=>({name:`${row.prefix}_${key}`,label,type:type==='year'?'year':undefined}));
-    return `<div class="repeat-row"><div class="repeat-title">${row.title}</div>${basicGrid(fields,values)}</div>`;
-  }).join(''));
+  const levels=['Tidak sekolah','SD / Sederajat','SMP / Sederajat','SMA / SMK','D1','D2','D3','D4','S1','S2','S3'];
+  const level=values.pendidikan_terakhir||'';
+  const rank={'Tidak sekolah':0,'SD / Sederajat':1,'SMP / Sederajat':2,'SMA / SMK':3,D1:4,D2:5,D3:6,D4:7,S1:8,S2:9,S3:10};
+  const selected=rank[level]??0;
+  return sectionHtml('C','PENDIDIKAN FORMAL',`
+    ${fieldHtml({name:'pendidikan_terakhir',label:'Pendidikan Terakhir',type:'select',options:choices(levels),required:true},values)}
+    ${educationRows.map(row=>{
+      const rowLevel=row.prefix==='sd'?1:row.prefix==='smp'?2:row.prefix==='sma'?3:row.prefix==='diploma'?4:8;
+      const visible=selected>=rowLevel && !(row.prefix==='diploma'&&selected>=8);
+      const fields=row.fields.map(([key,label,type])=>({name:`${row.prefix}_${key}`,label,type:type==='year'?'year':undefined}));
+      return `<div class="repeat-row" data-education-row="${row.prefix}" ${visible?'':'hidden'}><div class="repeat-title">${row.title}</div>${basicGrid(fields,values)}</div>`;
+    }).join('')}`);
 }
 function renderLanguages(values={}){
   const count=Math.min(4,Math.max(0,Number(values.bahasa_count||0)));
+  const languageOptions=['Inggris','Mandarin','Arab','Jepang','Rusia','Jerman','Prancis','Latin','Lainnya'];
   const rows=Array.from({length:count},(_,i)=>{
     const n=i+1,p=`bahasa${n}`;
-    const fs=[{name:p,label:'Bahasa',type:'select',options:choices(['Indonesia','Inggris','Jawa','Madura','Sunda','Mandarin','Jepang','Korea','Arab','Lainnya'])},{name:p+'_bicara',label:'Berbicara',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_baca',label:'Membaca',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_tulis',label:'Menulis',type:'select',options:choices(['Dasar','Menengah','Mahir'])}];
-    return `<div class="repeat-row"><div class="repeat-title">Bahasa ${n}</div>${basicGrid(fs,values)}</div>`;
+    const fs=[{name:p,label:'Bahasa asing',type:'select',options:choices(languageOptions)},{name:p+'_bicara',label:'Berbicara',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_baca',label:'Membaca',type:'select',options:choices(['Dasar','Menengah','Mahir'])},{name:p+'_tulis',label:'Menulis',type:'select',options:choices(['Dasar','Menengah','Mahir'])}];
+    return `<div class="repeat-row"><div class="repeat-title">Bahasa ${n}</div>${basicGrid(fs,values)}
+      <div class="conditional-fields" data-language-other="${n}" ${values[p]==='Lainnya'?'':'hidden'}>${fieldHtml({name:p+'_lainnya',label:'Nama bahasa lainnya'},values)}</div>
+    </div>`;
   }).join('');
-  return sectionHtml('D','KEMAMPUAN BERBAHASA',`${countSelect('bahasa_count','Jumlah bahasa',4,count,0)}<div id="language-rows">${rows}</div>`);
+  return sectionHtml('D','<strong>KEMAMPUAN BAHASA (SELAIN BAHASA INDONESIA)</strong>',`${countSelect('bahasa_count','Jumlah bahasa asing',4,count,0)}<div id="language-rows">${rows}</div>`);
 }
 function renderWork(values={}){
   const count=Math.min(3,Math.max(0,Number(values.kerja_count||0)));
+  const months=choices(['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']);
   const rows=Array.from({length:count},(_,i)=>{
-    const n=i+1,p=`kerja${n}_`,fs=workKeys.map(([key,label,type])=>({name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)}));
+    const n=i+1,p=`kerja${n}_`;
+    const fs=workKeys.map(([key,label,type])=>{
+      if(key.endsWith('_bulan'))return {name:p+key,label,type:'select',options:months};
+      if(key.endsWith('_tahun'))return {name:p+key,label,type:'year'};
+      if(type==='checkbox')return {name:p+key,label,type:'checkbox'};
+      return {name:p+key,label,currency:type==='currency',type:type==='number'?'number':undefined,min:type==='number'?0:undefined,wide:['perusahaan','alasan'].includes(key)};
+    });
     return `<div class="repeat-row"><div class="repeat-title">Pengalaman ${n}${n===1?' · terakhir':''}</div>${basicGrid(fs,values)}</div>`;
   }).join('');
   return sectionHtml('F','PENGALAMAN KERJA',`${countSelect('kerja_count','Jumlah pengalaman kerja',3,count,0)}<div class="conditional-fields" data-conditional="true" data-block="work-rows" ${count?'':'hidden'}><div id="work-rows">${rows}</div></div>`);
 }
 function renderReferences(values={}){
-  const count=Math.min(2,Math.max(0,Number(values.referensi_count||0)));
-  const rows=Array.from({length:count},(_,i)=>{
-    const n=i+1,p=`referensi${n}_`,fs=refKeys.map(([key,label])=>({name:p+key,label,type:key==='alamat'?'textarea':key==='telepon'?'tel':key==='hubungan'?'select':undefined,options:key==='hubungan'?choices(['Atasan','Rekan kerja','Guru / Dosen','Keluarga','Lainnya']):undefined,wide:key==='alamat'}));
-    return `<div class="repeat-row"><div class="repeat-title">Referensi ${n}</div>${basicGrid(fs,values)}</div>`;
-  }).join('');
-  return sectionHtml('H','REFERENSI',`${countSelect('referensi_count','Jumlah referensi',2,count,0)}<div class="conditional-fields" data-conditional="true" data-block="reference-rows" ${count?'':'hidden'}><div id="reference-rows">${rows}</div></div>`);
+  const fields=[
+    {name:'kontak_darurat_nama',label:'Nama lengkap',required:true},
+    {name:'kontak_darurat_hubungan',label:'Hubungan',type:'select',options:choices(['Orang tua','Suami / Istri','Anak','Saudara','Kerabat','Teman','Lainnya']),required:true},
+    {name:'kontak_darurat_telepon',label:'No. telepon / WhatsApp',type:'tel',required:true},
+    {name:'kontak_darurat_alamat',label:'Alamat',type:'textarea',wide:true}
+  ];
+  return sectionHtml('H','ORANG YANG BISA DIHUBUNGI DALAM KEADAAN DARURAT',basicGrid(fields,values));
 }
 function renderForm(values={}){
   initialData=values;
