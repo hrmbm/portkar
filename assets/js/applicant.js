@@ -77,6 +77,9 @@ let saveTimer = null;
 let saveInFlight = Promise.resolve();
 let mediaStream = null;
 let cameraFallback = false;
+let ktpPath = '';
+let ocrAttempts = 0;
+let villageSearchTimer = null;
 let ocrAttempts = 0;
 let villageSearchTimer = null;
 
@@ -237,7 +240,7 @@ function renderForm(values={}){
   const step1=`<div class="form-step" data-form-step="1">${renderFamily(values)}${renderEducation(values)}</div>`;
   const step2=`<div class="form-step" data-form-step="2">${renderLanguages(values)}${sectionHtml('E','HOBI',basicGrid([{name:'hobby',label:'Hobi dan minat',type:'textarea',wide:true}],values))}${renderWork(values)}</div>`;
   const step3=`<div class="form-step" data-form-step="3">${sectionHtml('G','EKSPEKTASI',basicGrid([{name:'mulai_kerja',label:'Tanggal mulai bisa bekerja',type:'date'},{name:'gaji_harapan',label:'Gaji yang diharapkan (Rp)',currency:true},{name:'fasilitas_harapan',label:'Fasilitas lain yang diharapkan',wide:true}],values))}${renderReferences(values)}${sectionHtml('I','PERTANYAAN TERBUKA',basicGrid([{name:'jawaban1',label:'Apa yang Anda ketahui tentang perusahaan kami?',type:'textarea',wide:true},{name:'jawaban2',label:'Ceritakan tentang pribadi Anda.',type:'textarea',wide:true},{name:'jawaban3',label:'Apa yang akan Anda lakukan untuk perusahaan kami jika diterima?',type:'textarea',wide:true}],values))}</div>`;
-  const step4=`<div class="form-step" data-form-step="4">${sectionHtml('J','PERNYATAAN',`<label class="consent-wrap"><input type="checkbox" id="setuju" name="setuju" value="true" ${values.setuju?'checked':''} required><span>Dengan ini saya menyatakan semua data yang saya isi benar.</span></label>`)}<section class="form-section"><h2><span class="section-bullet">CV</span>CURRICULUM VITAE</h2><label class="upload-zone cv-upload-zone"><span class="upload-icon">↥</span><b id="cv-filename">${esc(cvFilename||'Unggah CV (PDF)')}</b><small>PDF · Maks. 10 MB</small><input type="file" id="cv-file" accept="application/pdf,.pdf"></label><div class="cv-upload-state" id="cv-upload-state"></div></section></div>`;
+  const step4=`<div class="form-step" data-form-step="4">${sectionHtml('J','PERNYATAAN',`<label class="consent-wrap"><input type="checkbox" id="setuju" name="setuju" value="true" ${values.setuju?'checked':''} required><span>Dengan ini saya menyatakan semua data yang saya isi benar.</span></label>`)}<section class="form-section"><h2><span class="section-bullet">CV</span>CURRICULUM VITAE</h2><label class="upload-zone cv-upload-zone"><span class="upload-icon">↥</span><b id="cv-filename">${esc(cvFilename||'Unggah CV (PDF)')}</b><small>PDF · Maks. 10 MB</small><input type="file" id="cv-file" accept="application/pdf,.pdf"></label><div class="cv-upload-state" id="cv-upload-state"></div><div class="cv-disc-prompt" id="cv-disc-prompt" hidden><b>CV berhasil diunggah.</b><p>Setelah lamaran dikirim, Anda dapat memulai tes DISC sekarang atau melanjutkannya nanti.</p><button type="button" class="btn btn-secondary full" id="cv-continue-submit">Lanjutkan ke pengiriman lamaran</button><button type="button" class="manual-entry" id="cv-do-later">Kerjakan nanti</button></div></section></div>`;
   return `<div class="step-top"><span class="stage-kicker">FORMULIR LAMARAN KERJA</span><span class="step-number" id="wizard-count"></span></div><div class="wizard-progress"><span id="wizard-progress-bar"></span></div><section class="candidate-card form-wizard-card"><div class="wizard-heading"><div><h1 class="candidate-title">Data pelamar</h1><div class="wizard-step-label" id="wizard-step-label"></div></div><span class="wizard-save-state" id="draft-save-state" aria-live="polite">●</span></div><form id="application-form" novalidate><input type="hidden" name="ktp_path" value="${esc(values.ktp_path||'')}">${step0}${step1}${step2}${step3}${step4}<div id="form-error" class="form-error" role="alert"></div><div class="wizard-actions"><button type="button" class="btn btn-secondary" id="wizard-prev">Kembali</button><button type="button" class="btn btn-primary" id="wizard-next">Lanjut</button></div></form></section>`;
 }
 
@@ -407,7 +410,7 @@ async function hydrateAddress(form,values={}){
   setAddressLabel(form,'alamat_kota_jenis',match?.[1]||'Kabupaten');setAddressLabel(form,'alamat_kota_nama',regency.name.replace(/^(Kabupaten|Kota)\s+/i,''));
   const districts=await loadDistricts(form,regency.id),district=findRegion(districts,values.alamat_kecamatan);if(!district)return;
   form.querySelector('[name="alamat_kecamatan_id"]').value=district.id;setAddressLabel(form,'alamat_kecamatan',district.name);
-  const villages=await loadVillages(form,district.id),village=findRegion(villages,values.alamat_desa);
+  const villages=await loadVillages(form,district.id,values.alamat_desa||''),village=findRegion(villages,values.alamat_desa);
   if(village){
     form.querySelector('[name="alamat_desa_id"]').value=village.id;setAddressLabel(form,'alamat_desa',village.name);setAddressLabel(form,'alamat_wilayah_type',village.area_type);
     const {data:postal,error}=await supabase.rpc('get_region_postal_code',{p_village_id:village.id});
@@ -663,28 +666,81 @@ function hasUsefulOcr(data){
   const nik=String(data?.nik||'').replace(/\D/g,'');
   return /^\d{16}$/.test(nik)||Boolean(data?.nama&& (data?.tanggal_lahir||data?.tempat_lahir||data?.alamat_jalan));
 }
-async function runOcr(canvas){
-  const status=$('#ocr-status');
-  if(status)status.textContent='Menyimpan foto KTP…';
-  const blob=await canvasToJpeg(canvas);
-  const path=await saveKtpPhoto(blob);
-  if(status)status.textContent='Foto tersimpan. Mengirim ke OCR…';
-  let parsed=null,serverError=null;
-  try{parsed=await requestServerOcr(blob);}catch(error){serverError=error;}
-  if(!hasUsefulOcr(parsed||{})){
-    if(status)status.textContent='Menjalankan OCR gratis di perangkat…';
-    const fallback=await requestBrowserOcr(canvas,status);
-    if(hasUsefulOcr(fallback))parsed=fallback;
-  }
-  if(!hasUsefulOcr(parsed||{})){
-    const message=serverError?.message||'Tulisan KTP belum terbaca.';
-    throw new Error(message);
-  }
-  initialData={...initialData,...parsed,ktp_path:path};
-  writeLocalInitialDraft(initialData);
-  stopCamera();
-  showForm();
+async function canvasToJpegBlob(canvas){
+  return await new Promise((resolve,reject)=>{
+    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Foto KTP gagal diproses.')),'image/jpeg',0.88);
+  });
 }
+async function uploadKtpPhoto(canvas){
+  if(!draftToken)draftToken=newCandidateToken();
+  if(!isConfigured)throw new Error('Server belum terhubung. Foto KTP belum dapat disimpan.');
+  const blob=await canvasToJpegBlob(canvas);
+  const path=`${KTP_PATH_PREFIX}/${draftToken}/ktp.jpg`;
+  const draftData={...initialData,ktp_path:path};
+  const {error:draftError}=await supabase.rpc('save_candidate_draft',{
+    p_access_token:draftToken,
+    p_data:draftData,
+    p_cv_filename:cvFilename||null
+  });
+  if(draftError)throw draftError;
+  const {error:uploadError}=await supabase.storage.from(KTP_BUCKET).upload(path,blob,{
+    contentType:'image/jpeg',
+    upsert:true
+  });
+  if(uploadError)throw uploadError;
+  ktpPath=path;
+  initialData={...initialData,ktp_path:path};
+  writeLocalInitialDraft(initialData);
+  return path;
+}
+async function runOcr(canvas){
+  if(!window.Tesseract)throw new Error('Mesin OCR belum tersedia. Coba lagi atau gunakan input manual setelah tiga percobaan.');
+  const status=$('#ocr-status');
+  if(status)status.textContent='Membaca teks KTP…';
+  let result;
+  try{
+    result=await window.Tesseract.recognize(canvas,'ind+eng',{
+      logger:m=>{
+        if(m.status==='recognizing text'&&status){
+          status.textContent=`OCR ${ocrAttempts}/3 · membaca ${Math.round((m.progress||0)*100)}%`;
+        }
+      }
+    });
+  }catch(first){
+    result=await window.Tesseract.recognize(canvas,'eng');
+  }
+  const parsed=extractKtpText(result.data?.text||'');
+  const useful=['nik','nama','tempat_lahir','tanggal_lahir','gender','alamat_jalan','alamat_rt','alamat_desa','alamat_kecamatan'].some(k=>parsed[k]);
+  if(!useful)throw new Error('Tulisan KTP belum terbaca. Pastikan kartu fokus, tidak silau, dan masuk bingkai.');
+  return parsed;
+}
+async function processKtpCanvas(canvas){
+  const status=$('#ocr-status');
+  if(ocrAttempts>=3)throw new Error('Batas tiga percobaan OCR tercapai. Gunakan input manual.');
+  try{
+    if(status)status.textContent='Menyimpan foto KTP secara aman…';
+    await uploadKtpPhoto(canvas);
+    ocrAttempts+=1;
+    if(status)status.textContent=`Foto tersimpan · percobaan OCR ${ocrAttempts}/3…`;
+    const parsed=await runOcr(canvas);
+    initialData={...initialData,...parsed,ktp_path:ktpPath};
+    writeLocalInitialDraft(initialData);
+    stopCamera();
+    showForm();
+  }catch(error){
+    const message=error?.message||'Foto KTP belum dapat dibaca.';
+    if(status){
+      status.textContent=ocrAttempts>=3
+        ? `Tiga percobaan selesai. ${message} Anda dapat melanjutkan dengan mengisi data secara manual; foto KTP tetap tersimpan.`
+        : `Percobaan ${ocrAttempts}/3 gagal. ${message} Silakan ambil foto ulang.`;
+    }
+    if(ocrAttempts>=3&&ktpPath){
+      const manual=$('#manual-entry');if(manual)manual.hidden=false;
+    }
+    throw error;
+  }
+}
+
 async function startCamera(){
   const video=$('#ktp-video'),status=$('#camera-status'),fallback=$('#ktp-fallback');
   if(!navigator.mediaDevices?.getUserMedia){
@@ -712,51 +768,50 @@ function showOcrFailure(error){
 }
 async function processPhotoFile(file){
   if(!file)return;
-  if(!/^image\/(jpeg|png|webp)$/i.test(file.type)){showOcrFailure(new Error('Format foto tidak didukung. Gunakan JPG, PNG, atau WebP.'));return;}
-  if(file.size>8*1024*1024){showOcrFailure(new Error('Ukuran foto maksimal 8 MB.'));return;}
+  if(!/^image\/(jpeg|png|webp)$/i.test(file.type)){
+    const status=$('#ocr-status');if(status)status.textContent='Format foto harus JPG, PNG, atau WebP.';
+    return;
+  }
+  if(file.size>8*1024*1024){
+    const status=$('#ocr-status');if(status)status.textContent='Ukuran foto maksimal 8 MB.';
+    return;
+  }
   const status=$('#ocr-status');
   try{
     if(status)status.textContent='Menyiapkan foto KTP…';
-    const bitmap=await createImageBitmap(file),ratio=1.586,sw=Math.min(bitmap.width,bitmap.height*ratio),sh=sw/ratio;
-    const sx=(bitmap.width-sw)/2,sy=(bitmap.height-sh)/2;
-    const canvas=document.createElement('canvas');canvas.width=1800;canvas.height=Math.round(1800/ratio);
-    canvas.getContext('2d').drawImage(bitmap,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-    bitmap.close?.();enhanceForOcr(canvas);await runOcr(canvas);
-  }catch(error){showOcrFailure(error);}
-  finally{const input=$('#ktp-fallback-input');if(input)input.value='';}
-}
-async function captureAndRead(){
-  const button=$('#capture-ktp');
-  if(button)setBusy(button,true,'Menyimpan & membaca…');
-  try{await runOcr(cameraCropCanvas());}
-  catch(error){showOcrFailure(error);}
-  finally{if($('#capture-ktp'))setBusy($('#capture-ktp'),false,ocrAttempts>=3?'Ambil foto KTP':'Ambil ulang foto KTP');}
-}
-async function ensureManualPhotoBeforeShow(){
-  if(!initialData.ktp_path)throw new Error('Foto KTP belum tersimpan. Ambil foto KTP terlebih dahulu.');
-  writeLocalInitialDraft(initialData);stopCamera();showForm();
+    const bitmap=await createImageBitmap(file);
+    try{
+      const ratio=1.586;
+      const sw=Math.min(bitmap.width,bitmap.height*ratio),sh=sw/ratio;
+      const sx=(bitmap.width-sw)/2,sy=(bitmap.height-sh)/2;
+      const canvas=document.createElement('canvas');
+      canvas.width=1800;canvas.height=Math.round(1800/ratio);
+      canvas.getContext('2d').drawImage(bitmap,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+      enhanceForOcr(canvas);
+      await processKtpCanvas(canvas);
+    }finally{bitmap.close?.();}
+  }catch(error){
+    if(status&&ocrAttempts<3)status.textContent=error.message||'KTP belum terbaca.';
+  }
 }
 function showKtpScreen(){
-  root.innerHTML=`<div class="step-top"><span class="stage-kicker">PORTAL KARIR</span><span class="step-number">IDENTITAS</span></div>
-    <div class="wizard-progress"><span style="width:8%"></span></div>
-    <section class="candidate-card ktp-card"><h1 class="candidate-title">Pindai KTP</h1>
-      <p class="candidate-sub">Pastikan seluruh sisi depan KTP masuk bingkai, terang, dan tidak terpotong. Foto akan disimpan untuk verifikasi HR.</p>
-      <div class="ktp-camera-frame" id="ktp-camera-frame"><video id="ktp-video" autoplay muted playsinline></video><div class="ktp-guide" id="ktp-guide"><span>POSISIKAN KTP</span></div><div class="ktp-camera-corners" aria-hidden="true"></div></div>
-      <div class="ocr-status" id="ocr-status" aria-live="polite"></div><div class="camera-status" id="camera-status"></div>
-      <div id="ktp-fallback" class="ktp-fallback" hidden><button type="button" class="btn btn-secondary full" id="open-phone-camera">Buka kamera / pilih foto KTP</button></div>
-      <input type="file" id="ktp-fallback-input" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
-      <div class="candidate-actions camera-actions"><button type="button" class="btn btn-primary" id="capture-ktp" disabled>Ambil foto KTP</button></div>
-      <button type="button" class="manual-entry" id="manual-entry" hidden>OCR gagal 3 kali — lanjut isi data manual</button>
-    </section>`;
-  $('#capture-ktp').addEventListener('click',captureAndRead);
+  root.innerHTML=`<div class="step-top"><span class="stage-kicker">PORTAL KARIR</span><span class="step-number">IDENTITAS</span></div><div class="wizard-progress"><span style="width:8%"></span></div><section class="candidate-card ktp-card"><h1 class="candidate-title">Pindai KTP</h1><p class="candidate-sub">Posisikan KTP di dalam bingkai. Foto disimpan secara privat untuk verifikasi HR.</p><div class="ktp-camera-frame" id="ktp-camera-frame"><video id="ktp-video" autoplay muted playsinline></video><div class="ktp-guide" id="ktp-guide"><span>POSISIKAN KTP</span></div><div class="ktp-camera-corners" aria-hidden="true"></div></div><div class="ocr-status" id="ocr-status" aria-live="polite"></div><div class="camera-status" id="camera-status"></div><div id="ktp-fallback" class="ktp-fallback"><button type="button" class="btn btn-secondary full" id="open-phone-camera">Ambil / pilih foto KTP</button></div><input type="file" id="ktp-fallback-input" accept="image/jpeg,image/png,image/webp" capture="environment" hidden><div class="candidate-actions camera-actions"><button type="button" class="btn btn-primary" id="capture-ktp" disabled>Ambil foto KTP</button></div><button type="button" class="manual-entry" id="manual-entry" hidden>Isi data manual (foto KTP tetap tersimpan)</button></section>`;
+  startCamera();
+  $('#capture-ktp').addEventListener('click',async()=>{
+    const button=$('#capture-ktp');setBusy(button,true,'Menyimpan & membaca…');
+    try{await processKtpCanvas(cameraCropCanvas());}
+    catch(error){if($('#ocr-status')&&ocrAttempts<3)$('#ocr-status').textContent=error.message||'Foto gagal diproses.';}
+    finally{if($('#capture-ktp'))setBusy($('#capture-ktp'),false);}
+  });
   $('#open-phone-camera').addEventListener('click',()=>$('#ktp-fallback-input').click());
   $('#ktp-fallback-input').addEventListener('change',event=>processPhotoFile(event.target.files?.[0]));
-  $('#manual-entry').addEventListener('click',()=>ensureManualPhotoBeforeShow().catch(error=>{
-    const status=$('#ocr-status');if(status)status.textContent=error.message;
-  }));
-  ensureKtpDraft().catch(error=>{const status=$('#camera-status');if(status)status.textContent='Draft belum tersimpan: '+error.message;});
-  startCamera();
+  $('#manual-entry').addEventListener('click',()=>{
+    if(!ktpPath){const status=$('#ocr-status');if(status)status.textContent='Simpan foto KTP terlebih dahulu.';return;}
+    writeLocalInitialDraft({...initialData,ktp_path:ktpPath});
+    showForm();
+  });
 }
+
 async function uploadCv(file){
   const status=$('#cv-upload-state'),name=$('#cv-filename');
   if(!file)return;
@@ -773,6 +828,9 @@ async function uploadCv(file){
     cvFilename=file.name;
     name.textContent=cvFilename;
     status.textContent='CV tersimpan';
+    const prompt=$('#cv-disc-prompt');if(prompt)prompt.hidden=false;
+    $('#cv-continue-submit')?.addEventListener('click',()=>setWizardStep(stepNames.length-1,{push:true}));
+    $('#cv-do-later')?.addEventListener('click',()=>{if(prompt)prompt.hidden=true;});
     await flushDraft(form);
   }catch(error){
     status.textContent=error.message||'CV belum tersimpan.';saveState('Belum tersimpan',true);
@@ -780,9 +838,11 @@ async function uploadCv(file){
 }
 function showForm(){
   stopCamera();
+  ktpPath=initialData.ktp_path||ktpPath||'';
   root.innerHTML=renderForm(initialData);
   const form=$('#application-form');
   $('#cv-filename').textContent=cvFilename||'Unggah CV (PDF)';
+  hydrateAddress(form,initialData).catch(error=>saveState(error.message||'Daftar wilayah belum dapat dimuat.',true));
   $('#cv-upload-state').textContent=cvFilename?'CV tersimpan':'';
   const numericFields=['nik','alamat_rt','alamat_rw'];
   form.addEventListener('input',event=>{
@@ -790,6 +850,14 @@ function showForm(){
     if(numericFields.includes(el.name))normalizeDigitInput(el,el.name==='nik'?16:3);
     if(el.name==='telepon'||el.name==='kontak_darurat_telepon')normalizeDigitInput(el,16);
     if(el.dataset.formatNumber==='idr')formatCurrencyInput(el);
+    if(el.name==='alamat_desa_search'){
+      clearTimeout(villageSearchTimer);
+      villageSearchTimer=setTimeout(()=>{
+        const districtId=form.querySelector('[name="alamat_kecamatan_id"]')?.value||'';
+        const term=el.value.trim();
+        if(districtId&&(term.length>=2||term.length===0))loadVillages(form,districtId,term).catch(error=>saveState(error.message||'Desa tidak dapat dimuat.',true));
+      },280);
+    }
     if(['nama','tanggal_lahir','gender'].includes(el.name))syncApplicantRow(form);
     if(addressFields.some(field=>field.name===el.name))updateAddressPreview(form);
     if(el.name==='alamat_desa_search'){
@@ -803,6 +871,10 @@ function showForm(){
   });
   form.addEventListener('change',event=>{
     const key=event.target.name;
+    if(['alamat_provinsi_id','alamat_kota_id','alamat_kecamatan_id','alamat_desa_id'].includes(key)){
+      onRegionChange(form,key).catch(error=>saveState(error.message||'Alamat wilayah gagal dimuat.',true));
+      syncApplicantRow(form);return;
+    }
     if(['alamat_rt','alamat_rw'].includes(key))padRtRw(event.target);
     if(['alamat_provinsi_id','alamat_kota_id','alamat_kecamatan_id','alamat_desa_id'].includes(key)){
       onRegionChange(form,key).catch(error=>saveState(error.message||'Wilayah gagal dimuat.',true));
