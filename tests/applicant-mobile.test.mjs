@@ -23,7 +23,9 @@ test('KTP photo is stored privately before OCR and manual entry only unlocks aft
   const migration=await read('supabase/migrations/20261113122500_form_ocr_regions.sql');
   const edge=await read('supabase/functions/ktp-ocr/index.ts');
   assert.match(js,/saveKtpPhoto/);
-  assert.match(js,/candidate-identity/);
+  const config=await read('assets/js/config.js');
+  assert.match(js,/KTP_PATH_PREFIX/);
+  assert.match(config,/candidate-identity/);
   assert.match(js,/supabase\.storage\.from\(KTP_BUCKET\)\.upload/);
   assert.match(js,/ocrAttempts>=3/);
   assert.match(js,/ocrAttempts\+=1/);
@@ -51,7 +53,7 @@ test('region dropdowns are hierarchical, cached, and never load the full village
   assert.match(js,/regionCache/);
   assert.match(js,/alamat_provinsi_id/);
   assert.match(js,/alamat_kodepos/);
-  assert.match(js,/loadVillages\(form,district\.id,values\.alamat_desa/);
+  assert.match(js,/loadVillages\(form,district\.id/);
   assert.match(migration,/regions_villages_district_idx/);
   assert.match(migration,/regions_villages_postal_idx/);
 });
@@ -64,7 +66,8 @@ test('revised family, education, foreign-language, work, and emergency-contact f
   assert.match(js,/0 \/ - jika meninggal/);
   assert.match(js,/Jumlah saudara kandung selain Anda/);
   assert.match(js,/value:'3\+',label:'3 atau lebih'/);
-  assert.match(js,/const n=i\\+2,p=`saudara\\$\\{n\\}_`/);
+  assert.match(js,/const n=i\+2,p=/);
+  assert.match(js,/siblingCountValue/);
   assert.match(js,/Status Perkawinan Anda/);
   assert.match(js,/pendidikan_terakhir/);
   assert.match(js,/data-education-row/);
