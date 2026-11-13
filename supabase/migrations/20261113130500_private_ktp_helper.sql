@@ -56,5 +56,4 @@ create policy "candidate replaces own draft KTP" on storage.objects
     and private.can_access_candidate_ktp_file(name)
   );
 
-revoke all on function public.can_access_candidate_ktp_file(text) from public, anon, authenticated;
-drop function public.can_access_candidate_ktp_file(text);
+drop function if exists public.can_access_candidate_ktp_file(text);
