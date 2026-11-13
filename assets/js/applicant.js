@@ -9,6 +9,7 @@ const educationChoices = choices(['Tidak sekolah','SD / Sederajat','SMP / Sedera
 const religionChoices = choices(['Islam','Kristen Protestan','Katolik','Hindu','Buddha','Konghucu','Kepercayaan','Lainnya']);
 const personalFields = [
   {name:'posisi',label:'Posisi yang dilamar',required:true},
+  {name:'pekerjaan',label:'Pekerjaan sesuai KTP'},
   {name:'nama',label:'Nama lengkap',required:true},
   {name:'nik',label:'NIK',required:true,inputmode:'numeric',maxlength:16},
   {name:'tempat_lahir',label:'Tempat lahir',required:true},
@@ -35,9 +36,9 @@ const addressFields = [
   {name:'alamat_kodepos',label:'Kode pos'}
 ];
 const parentFields = [
-  {name:'ayah_nama',label:'Nama ayah'}, {name:'ayah_umur',label:'Umur ayah (isi 0 jika meninggal)',type:'number',min:0,max:120},
+  {name:'ayah_nama',label:'Nama ayah'}, {name:'ayah_umur',label:'Umur ayah (isi 0 / - jika meninggal)',type:'text',inputmode:'numeric',pattern:'(?:-|[0-9]{1,3})'},
   {name:'ayah_pendidikan',label:'Pendidikan ayah',type:'select',options:educationChoices}, {name:'ayah_pekerjaan',label:'Pekerjaan ayah'},
-  {name:'ibu_nama',label:'Nama ibu'}, {name:'ibu_umur',label:'Umur ibu (isi 0 jika meninggal)',type:'number',min:0,max:120},
+  {name:'ibu_nama',label:'Nama ibu'}, {name:'ibu_umur',label:'Umur ibu (isi 0 / - jika meninggal)',type:'text',inputmode:'numeric',pattern:'(?:-|[0-9]{1,3})'},
   {name:'ibu_pendidikan',label:'Pendidikan ibu',type:'select',options:educationChoices}, {name:'ibu_pekerjaan',label:'Pekerjaan ibu'}
 ];
 const maritalField = {name:'status_kawin',label:'Status Perkawinan Anda',type:'select',options:choices(['Belum kawin','Kawin','Cerai hidup','Cerai mati']),required:true};
@@ -647,6 +648,7 @@ function normalizeOcrServiceResponse(response){
   const out={};
   if(raw.nik)out.nik=String(raw.nik).replace(/\D/g,'').slice(0,16);
   if(raw.nama)out.nama=String(raw.nama).trim();
+  if(raw.pekerjaan)out.pekerjaan=String(raw.pekerjaan).trim();
   if(raw.tempat_lahir)out.tempat_lahir=String(raw.tempat_lahir).replace(/[,\s]+$/,'').trim();
   const date=String(raw.tgl_lahir||raw.tanggal_lahir||'').trim();
   const dm=date.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
@@ -691,18 +693,13 @@ async function requestServerOcr(blob){
   }finally{clearTimeout(timeout);}
 }
 async function requestBrowserOcr(canvas,status){
-  const withTimeout=(promise)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('OCR melewati batas waktu 25 detik. Coba foto ulang.')),25000))]);
   if(!window.Tesseract)throw new Error('OCR server belum tersedia dan OCR browser tidak dapat dimuat.');
-  let result;
-  try{
-    result=await withTimeout(window.Tesseract.recognize(canvas,'ind+eng',{logger:m=>{
-      if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
-    }}));
-  }catch{
-    result=await withTimeout(window.Tesseract.recognize(canvas,'eng',{logger:m=>{
-      if(m.status==='recognizing text'&&status)status.textContent=`OCR cadangan: membaca ${Math.round((m.progress||0)*100)}%`;
-    }}));
-  }
+  if(status)status.textContent='OCR cadangan di perangkat: membaca teks KTP…';
+  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('OCR browser melewati batas 25 detik. Ambil foto ulang atau isi manual setelah tiga percobaan.')),25000));
+  const recognition=window.Tesseract.recognize(canvas,'ind+eng',{logger:m=>{
+    if(m.status==='recognizing text'&&status)status.textContent=`OCR perangkat: membaca ${Math.round((m.progress||0)*100)}%`;
+  }});
+  const result=await Promise.race([recognition,timeout]);
   return extractKtpText(result.data?.text||'');
 }
 function hasUsefulOcr(data){
